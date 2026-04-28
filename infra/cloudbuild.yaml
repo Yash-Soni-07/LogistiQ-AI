@@ -1,0 +1,160 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# infra/cloudbuild.yaml — GCP Cloud Build CI/CD pipeline for LogistiQ AI
+#
+# Triggered by: Cloud Build trigger on push to main branch (set up in GCP console)
+#
+# Substitution variables (set in trigger config, NOT here):
+#   _REGION          = asia-south1
+#   _REPO            = logistiq                    (Artifact Registry repo name)
+#   _SERVICE_NAME    = logistiq-api                (Cloud Run service name)
+#   _FRONTEND_BUCKET = gs://logistiq-ai.web.app    (Firebase / GCS hosting bucket)
+#
+# Required IAM roles for the Cloud Build service account:
+#   - roles/run.admin
+#   - roles/artifactregistry.writer
+#   - roles/secretmanager.secretAccessor
+#   - roles/iam.serviceAccountUser
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  _REGION: asia-south1
+  _REPO: logistiq
+  _SERVICE_NAME: logistiq-api
+  _MIN_INSTANCES: "0"
+  _MAX_INSTANCES: "10"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8         # faster builds for larger Python deps
+  env:
+    - DOCKER_BUILDKIT=1
+
+steps:
+  # ── Step 1: Run backend lint + tests ─────────────────────────────────────
+  - id: test-backend
+    name: python:3.11-slim
+    dir: backend
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        pip install uv --quiet
+        uv sync --frozen --all-groups
+        uv run ruff check .
+        uv run ruff format --check .
+        uv run pytest tests/unit/ -q --tb=short
+    env:
+      - DATABASE_URL=sqlite+aiosqlite:///./test.db
+      - REDIS_URL=redis://localhost:6379
+      - SECRET_KEY=cloudbuild-ci-secret-32chars!!
+      - ENVIRONMENT=test
+      - GEMINI_API_KEY=MOCK_KEY
+
+  # ── Step 2: Build backend Docker image ────────────────────────────────────
+  - id: build-backend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=infra/Dockerfile.backend
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:$COMMIT_SHA
+      - --tag=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:latest
+      - --cache-from=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:latest
+      - --build-arg=BUILDKIT_INLINE_CACHE=1
+      - ./backend
+    waitFor: [test-backend]
+
+  # ── Step 3: Push backend image to Artifact Registry ──────────────────────
+  - id: push-backend
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api
+    waitFor: [build-backend]
+
+  # ── Step 4: Apply database migrations ────────────────────────────────────
+  # Runs `alembic upgrade head` as a Cloud Run Job (one-shot) so migrations
+  # complete before the new API revision accepts traffic.
+  - id: migrate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - execute
+      - logistiq-migrate
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:$COMMIT_SHA
+      - --region=$_REGION
+      - --command=alembic
+      - --args=upgrade,head
+      - --wait
+    waitFor: [push-backend]
+
+  # ── Step 5: Deploy API to Cloud Run ──────────────────────────────────────
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - $_SERVICE_NAME
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:$COMMIT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --allow-unauthenticated
+      - --min-instances=$_MIN_INSTANCES
+      - --max-instances=$_MAX_INSTANCES
+      - --memory=2Gi
+      - --cpu=2
+      - --concurrency=100
+      - --timeout=60s
+      - --set-secrets=SECRET_KEY=logistiq-secret-key:latest,DATABASE_URL=logistiq-database-url:latest,GEMINI_API_KEY=logistiq-gemini-key:latest,STRIPE_SECRET_KEY=logistiq-stripe-secret:latest,STRIPE_WEBHOOK_SECRET=logistiq-stripe-webhook:latest
+      - --set-env-vars=ENVIRONMENT=production,REDIS_URL=redis://10.0.0.3:6379,ALLOWED_ORIGINS=https://logistiq-ai.web.app,ALGORITHM=HS256,GEMINI_MODEL=gemini-1.5-flash,SENTINEL_POLL_INTERVAL_MINUTES=5
+    waitFor: [migrate]
+
+  # ── Step 6: Build frontend ────────────────────────────────────────────────
+  - id: build-frontend
+    name: node:20-slim
+    dir: frontend
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        corepack enable
+        corepack prepare pnpm@latest --activate
+        pnpm install --frozen-lockfile
+        pnpm build
+    env:
+      - VITE_API_URL=https://$_SERVICE_NAME-$PROJECT_NUMBER.$_REGION.run.app
+      - VITE_ENVIRONMENT=production
+    waitFor: ["-"]                    # run in parallel with backend steps
+
+  # ── Step 7: Deploy frontend to Firebase Hosting ───────────────────────────
+  - id: deploy-frontend
+    name: node:20-slim
+    dir: frontend
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        npx firebase-tools deploy \
+          --only hosting \
+          --project $PROJECT_ID \
+          --non-interactive \
+          --token $$FIREBASE_TOKEN
+    secretEnv: [FIREBASE_TOKEN]
+    waitFor: [build-frontend, deploy-api]
+
+# ── Secret Manager references ─────────────────────────────────────────────────
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/logistiq-firebase-token/versions/latest
+      env: FIREBASE_TOKEN
+
+# ── Artifact Registry image destinations ─────────────────────────────────────
+images:
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:$COMMIT_SHA
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO/api:latest
+
+# ── Build timeout ─────────────────────────────────────────────────────────────
+timeout: 1800s    # 30 minutes — Python deps + ortools can take a while

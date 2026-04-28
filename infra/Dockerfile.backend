@@ -1,0 +1,81 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.backend — Multi-stage production image for LogistiQ AI FastAPI backend
+#
+# Build:  docker build -f infra/Dockerfile.backend -t logistiq-api:latest ./backend
+# Run:    docker run -p 8000:8000 --env-file backend/.env logistiq-api:latest
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Stage 1: dependency builder ───────────────────────────────────────────────
+FROM python:3.11-slim AS builder
+
+# System deps needed to compile native extensions (asyncpg, bcrypt, ortools, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast, dependency-locked installer)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /build
+
+# Copy dependency manifests first (maximise layer cache hits)
+COPY pyproject.toml uv.lock ./
+
+# Install only production deps (no [dev] group) into /build/.venv
+RUN uv sync --frozen --no-dev --no-install-project
+
+# ── Stage 2: runtime image ────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+
+# Metadata labels (OCI standard)
+LABEL org.opencontainers.image.title="LogistiQ AI API"
+LABEL org.opencontainers.image.description="AI-powered logistics disruption management"
+LABEL org.opencontainers.image.source="https://github.com/your-org/logistiq-ai"
+
+# Runtime system deps (libpq for asyncpg, libgdal for geoalchemy2)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    libgdal32 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd --gid 1001 appgroup && \
+    useradd --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
+
+WORKDIR /app
+
+# Copy installed virtualenv from builder stage
+COPY --from=builder /build/.venv /app/.venv
+
+# Copy application source
+COPY --chown=appuser:appgroup . /app/
+
+# Make the venv the primary Python environment
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Switch to non-root user
+USER appuser
+
+# Expose FastAPI port
+EXPOSE 8000
+
+# Health check — liveness probe matches /health endpoint in main.py
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+# Start uvicorn with production settings
+# --workers 1: Cloud Run single-container model; scale by instance count, not workers
+# --log-config none: structlog handles all logging
+CMD ["python", "-m", "uvicorn", "main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "1", \
+     "--loop", "uvloop", \
+     "--http", "httptools", \
+     "--log-config", "none", \
+     "--no-access-log"]

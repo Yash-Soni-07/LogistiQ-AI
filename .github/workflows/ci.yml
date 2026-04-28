@@ -1,0 +1,385 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# LogistiQ AI — GitHub Actions CI/CD Pipeline
+#
+# Jobs
+# ────
+#   quality          → lint · type-check · unit tests · coverage · integration
+#   deploy           → GCP Cloud Run API + Firebase Hosting (main branch only)
+#   weekly-benchmark → perf regression against staging (every Sunday 00:00 UTC)
+#
+# Required GitHub Secrets
+# ───────────────────────
+#   GCP_WORKLOAD_IDENTITY_PROVIDER   → projects/<n>/locations/global/workloadIdentityPools/...
+#   GCP_SERVICE_ACCOUNT              → ci@<project>.iam.gserviceaccount.com
+#   FIREBASE_TOKEN                   → firebase CI token (firebase login:ci)
+#   STRIPE_SECRET_KEY                → sk_test_... (used by integration tests)
+#   STRIPE_WEBHOOK_SECRET            → whsec_...
+#   STRIPE_STARTER_PRICE_ID          → price_...
+#   STRIPE_PRO_PRICE_ID              → price_...
+#   STRIPE_ENTERPRISE_PRICE_ID       → price_...
+#
+# Required GitHub Variables (vars.*)
+# ───────────────────────────────────
+#   GCP_PROJECT      → GCP project ID (e.g. logistiq-ai-prod)
+#   STAGING_URL      → https://logistiq-api-<hash>-el.a.run.app
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI / CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Every Sunday at 00:00 UTC → triggers the weekly-benchmark job
+    - cron: "0 0 * * 0"
+
+# Cancel in-flight runs on the same branch/PR so pushes don't queue up
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 1 — quality
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    # ── Service containers ────────────────────────────────────────────────────
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgis/postgis:16-3.4
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_DB: logistiq_test
+          POSTGRES_USER: logistiq
+          POSTGRES_PASSWORD: ci_secret_123
+        options: >-
+          --health-cmd "pg_isready -U logistiq"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    # ── Environment available to ALL steps in this job ────────────────────────
+    env:
+      # Unit tests override to SQLite; integration tests use Postgres below
+      DATABASE_URL: sqlite+aiosqlite:///./test.db
+      REDIS_URL: redis://localhost:6379
+      SECRET_KEY: ci-test-secret-32chars-minimum!!
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      ENVIRONMENT: test
+      GEMINI_API_KEY: MOCK_CI_KEY
+      # Stripe: use secrets if present, else dummy values so app doesn't crash
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || 'sk_test_ci_dummy' }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET || 'whsec_ci_dummy' }}
+      STRIPE_STARTER_PRICE_ID: ${{ secrets.STRIPE_STARTER_PRICE_ID || 'price_starter_dummy' }}
+      STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID || 'price_pro_dummy' }}
+      STRIPE_ENTERPRISE_PRICE_ID: ${{ secrets.STRIPE_ENTERPRISE_PRICE_ID || 'price_ent_dummy' }}
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Python + uv setup ───────────────────────────────────────────────────
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true              # restores uv's global cache between runs
+          cache-dependency-glob: "backend/uv.lock"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      # ── Install dependencies (all groups) ───────────────────────────────────
+      - name: Install backend dependencies
+        run: uv sync --all-groups --frozen
+        # --frozen: fail if uv.lock is out of sync with pyproject.toml
+        # --all-groups: includes [dev] group (pytest, mypy, ruff, fakeredis, …)
+
+      # ── STEP: Lint + Format ─────────────────────────────────────────────────
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      # ── STEP: Type Check ────────────────────────────────────────────────────
+      - name: Type check (mypy)
+        # Run from repo root so mypy resolves 'backend/' as a package path
+        working-directory: ${{ github.workspace }}
+        run: uv run --directory backend mypy backend/ --ignore-missing-imports
+
+      # ── STEP: Unit Tests + Coverage ─────────────────────────────────────────
+      - name: Unit tests
+        run: |
+          uv run pytest tests/unit/ \
+            -v \
+            --tb=short \
+            --cov=. \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing \
+            -p no:warnings
+
+      - name: Enforce coverage threshold (≥ 80 %)
+        run: uv run coverage report --fail-under=80
+
+      - name: Upload unit-test coverage report
+        uses: actions/upload-artifact@v4
+        if: always()          # upload even on failure so we can diagnose
+        with:
+          name: coverage-unit-${{ github.run_id }}
+          path: backend/coverage.xml
+          retention-days: 14
+
+      # ── STEP: Integration Tests ─────────────────────────────────────────────
+      # Integration tests get the real Postgres URL (postgis/postgis:16-3.4)
+      - name: Integration tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://logistiq:ci_secret_123@localhost:5432/logistiq_test
+        run: |
+          uv run pytest tests/integration/ \
+            -v \
+            --tb=short \
+            -p no:warnings \
+            --cov=. \
+            --cov-report=xml:coverage-integration.xml \
+            --cov-append
+
+      - name: Upload integration coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-integration-${{ github.run_id }}
+          path: backend/coverage-integration.xml
+          retention-days: 14
+
+      # ── STEP: Publish coverage to job summary ───────────────────────────────
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo "## 📊 Coverage Summary" >> $GITHUB_STEP_SUMMARY
+          uv run coverage report --format=markdown >> $GITHUB_STEP_SUMMARY || true
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 2 — deploy  (push to main only, needs: quality)
+# ─────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to GCP + Firebase
+    runs-on: ubuntu-latest
+    needs: quality
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    # Require explicit environment approval for production deploys
+    environment:
+      name: production
+      url: https://logistiq-api-${{ vars.GCP_PROJECT }}.a.run.app
+
+    permissions:
+      contents: read
+      id-token: write     # required for Workload Identity Federation
+
+    env:
+      REGION: asia-south1
+      API_IMAGE: asia-south1-docker.pkg.dev/${{ vars.GCP_PROJECT }}/logistiq/api:${{ github.sha }}
+      API_IMAGE_LATEST: asia-south1-docker.pkg.dev/${{ vars.GCP_PROJECT }}/logistiq/api:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Authenticate to GCP via Workload Identity Federation ────────────────
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          # No JSON key needed — keyless auth via OIDC token
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT }}
+
+      # ── Configure Docker to push to Artifact Registry ───────────────────────
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      # ── Build & push API image via Cloud Build ──────────────────────────────
+      - name: Build backend image (Cloud Build)
+        run: |
+          gcloud builds submit \
+            --tag "${{ env.API_IMAGE }}" \
+            --timeout=20m \
+            ./backend
+
+      # Also tag :latest so Cloud Run can always pull the newest
+      - name: Tag image as :latest
+        run: |
+          gcloud container images add-tag \
+            "${{ env.API_IMAGE }}" \
+            "${{ env.API_IMAGE_LATEST }}" \
+            --quiet
+
+      # ── Deploy API to Cloud Run ─────────────────────────────────────────────
+      - name: Deploy API → Cloud Run
+        run: |
+          gcloud run deploy logistiq-api \
+            --image "${{ env.API_IMAGE }}" \
+            --region "${{ env.REGION }}" \
+            --platform managed \
+            --allow-unauthenticated \
+            --min-instances 0 \
+            --max-instances 10 \
+            --memory 2Gi \
+            --cpu 2 \
+            --concurrency 100 \
+            --timeout 60s \
+            --set-secrets \
+              "SECRET_KEY=logistiq-secret-key:latest,\
+              STRIPE_SECRET_KEY=logistiq-stripe-secret:latest,\
+              STRIPE_WEBHOOK_SECRET=logistiq-stripe-webhook:latest,\
+              GEMINI_API_KEY=logistiq-gemini-key:latest,\
+              DATABASE_URL=logistiq-database-url:latest" \
+            --set-env-vars \
+              "ENVIRONMENT=production,\
+              REDIS_URL=redis://10.0.0.3:6379,\
+              ALLOWED_ORIGINS=https://logistiq-ai.web.app,\
+              ALGORITHM=HS256,\
+              ACCESS_TOKEN_EXPIRE_MINUTES=15,\
+              REFRESH_TOKEN_EXPIRE_DAYS=7,\
+              GEMINI_MODEL=gemini-1.5-flash,\
+              SENTINEL_POLL_INTERVAL_MINUTES=5,\
+              GDELT_POLL_INTERVAL_MINUTES=10"
+
+      # ── Deploy Frontend → Firebase Hosting ──────────────────────────────────
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://logistiq-api-${{ vars.GCP_PROJECT }}.a.run.app
+          VITE_ENVIRONMENT: production
+        run: pnpm build
+
+      - name: Deploy → Firebase Hosting
+        working-directory: frontend
+        run: |
+          npx firebase-tools deploy \
+            --only hosting \
+            --token "${{ secrets.FIREBASE_TOKEN }}" \
+            --project "${{ vars.GCP_PROJECT }}" \
+            --non-interactive
+
+      # ── Post-deploy summary ─────────────────────────────────────────────────
+      - name: Deployment summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status | Image/SHA |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|-----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| API (Cloud Run) | ✅ Deployed | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend (Firebase) | ✅ Deployed | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ env.REGION }}" >> $GITHUB_STEP_SUMMARY
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 3 — weekly-benchmark  (cron: every Sunday at 00:00 UTC)
+# ─────────────────────────────────────────────────────────────────────────────
+  weekly-benchmark:
+    name: Weekly Performance Benchmark
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: uv sync --all-groups --frozen
+
+      - name: Run benchmark suite
+        working-directory: backend
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+          ENVIRONMENT: benchmark
+        run: |
+          uv run python scripts/benchmark.py \
+            --url "${{ vars.STAGING_URL }}" \
+            --output benchmark-results.json
+
+      - name: Publish benchmark results to job summary
+        if: always()
+        working-directory: backend
+        run: |
+          echo "## ⚡ Weekly Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Staging URL:** \`${{ vars.STAGING_URL }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Run date:** $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f benchmark-results.json ]; then
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat benchmark-results.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ benchmark-results.json not found — script may have failed." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload benchmark results artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-${{ github.run_id }}-${{ github.run_number }}
+          path: backend/benchmark-results.json
+          retention-days: 90      # keep 90 days so we can track week-over-week
+
+# ─────────────────────────────────────────────────────────────────────────────
+# End of workflow
+# ─────────────────────────────────────────────────────────────────────────────

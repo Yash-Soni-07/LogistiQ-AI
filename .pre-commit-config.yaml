@@ -1,0 +1,17 @@
+repos:
+  - repo: https://github.com/charliermarsh/ruff-pre-commit
+    rev: v0.15.11
+    hooks:
+      - id: ruff
+        name: ruff (lint and format)
+        entry: ruff check --fix
+        language: python
+        types: [python]
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.2
+    hooks:
+      - id: mypy
+        name: mypy (type checking)
+        entry: mypy --strict
+        language: python
+        types: [python]

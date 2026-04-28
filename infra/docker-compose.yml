@@ -1,0 +1,148 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# infra/docker-compose.yml — Full local development stack for LogistiQ AI
+#
+# Services
+# ────────
+#   postgres   postgis/postgis:16-3.4  — Primary database (PostGIS + RLS)
+#   redis      redis:7-alpine          — Cache + pub/sub + rate-limiting
+#   backend    ./backend               — FastAPI app (hot-reload via uvicorn --reload)
+#   frontend   ./frontend              — Vite dev server (HMR)
+#
+# Usage
+# ─────
+#   docker compose -f infra/docker-compose.yml up --build
+#   docker compose -f infra/docker-compose.yml down -v     # wipe volumes
+#
+# Prerequisites
+# ─────────────
+#   - Copy backend/.env.example → backend/.env and fill in GEMINI_API_KEY etc.
+#   - Ports 5432, 6379, 8000, 5173 must be free on the host.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL + PostGIS ──────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: logistiq-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: logistiq
+      POSTGRES_USER: logistiq
+      POSTGRES_PASSWORD: dev_secret_123
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "logistiq", "-d", "logistiq"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: logistiq-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../infra/Dockerfile.backend
+      # In dev, override the CMD to enable hot reload
+    container_name: logistiq-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../backend/.env
+    environment:
+      # Override DB + Redis URLs to use Docker service names
+      DATABASE_URL: postgresql+asyncpg://logistiq:dev_secret_123@postgres:5432/logistiq
+      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: development
+    command:
+      - python
+      - -m
+      - uvicorn
+      - main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload                      # hot-reload: watches for file changes
+      - --log-config
+      - none
+    volumes:
+      - ../backend:/app               # mount source for hot-reload
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ── Vite Frontend (dev server) ────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../infra/Dockerfile.frontend
+      target: builder                 # use the builder stage for dev (has pnpm + HMR)
+    container_name: logistiq-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"                   # Vite default dev port
+    environment:
+      VITE_API_URL: http://localhost:8000
+      VITE_ENVIRONMENT: development
+    command: pnpm dev --host          # --host exposes to Docker network
+    volumes:
+      - ../frontend:/app              # mount source for HMR
+      - /app/node_modules             # preserve node_modules from image (anonymous vol)
+    depends_on:
+      - backend
+
+  # ── Redis Commander (optional dev UI for Redis) ───────────────────────────
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: logistiq-redis-ui
+    restart: unless-stopped
+    profiles: ["debug"]              # only starts with: docker compose --profile debug up
+    ports:
+      - "8081:8081"
+    environment:
+      REDIS_HOSTS: "local:redis:6379"
+    depends_on:
+      - redis
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local
+
+# ── Network ───────────────────────────────────────────────────────────────────
+networks:
+  default:
+    name: logistiq-net
+    driver: bridge
