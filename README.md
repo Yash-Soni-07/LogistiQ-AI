@@ -40,7 +40,7 @@ LogistiQ is engineered with a **Backend-First**, micro-services inspired approac
 * **Cache & Pub/Sub (Redis):** Handles session caching, rate limiting, and highly concurrent WebSocket broadcast channels for fleet-wide updates.
 
 ### 🤖 Agentic AI & Model Context Protocol (MCP)
-The "brain" of the platform is built on multiple autonomous background agents utilizing Google's `gemini-1.5-flash` model, operating via the **Model Context Protocol (MCP)**:
+The "brain" of the platform is built on multiple autonomous background agents utilizing Google's `gemini-2.5-flash` model, operating via the **Model Context Protocol (MCP)**:
 * **Sentinel Agent:** An APScheduler-driven worker that polls global data sources and calculates geospatial risks.
 * **Decision Agent:** Triggered by Sentinel when critical risks (e.g., risk score > 0.85) are detected. It autonomously queries the MCP routing tools to evaluate alternative paths and executes reroutes.
 * **Copilot Agent:** An interactive NLP interface that categorizes user intents (e.g., "Where is my shipment?", "What is the flood risk on route A?") and executes specific tools to generate actionable answers.
