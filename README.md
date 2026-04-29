@@ -29,13 +29,33 @@
 
 ---
 
-## 🏗️ Tech Stack & Architecture
+## 🏗️ System Design & Architecture
 
-LogistiQ is engineered with a **Backend-First** approach and a highly robust API-centric design to ensure enterprise-grade stability and scalability.
+LogistiQ is engineered with a **Backend-First**, micro-services inspired approach and a highly robust API-centric design to ensure enterprise-grade stability and multi-tenant scalability.
 
-* **Backend (FastAPI & PostGIS):** An asynchronous, high-throughput backend powered by Python's FastAPI. Uses PostgreSQL + PostGIS for complex spatial queries and Redis for caching and WebSockets pub/sub.
-* **Frontend (Refine + React + Tailwind CSS):** We utilize **Refine** to rapidly build out a powerful, production-grade internal tooling interface that provides operators with a sophisticated dashboard, complete with dynamic mapping via deck.gl.
-* **Agentic AI & MCP Integration:** The core brain of the platform uses background AI agents communicating through the **Model Context Protocol (MCP)**. This allows our models to seamlessly consume external APIs (like Open-Meteo or NASA FIRMS) to contextualize risk scores and independently propose routing adjustments.
+### 🧩 Core Architecture
+* **Frontend (Refine + React + Tailwind CSS):** We utilize **Refine** to rapidly build out a powerful, production-grade internal tooling interface. The UI features a sophisticated operator dashboard, real-time alerting, and dynamic geospatial tracking rendered via `deck.gl` and `react-map-gl`. State management is handled through Zustand, with TanStack Query managing optimistic UI updates.
+* **Backend API (FastAPI):** An asynchronous, high-throughput backend powered by Python's FastAPI. It serves RESTful endpoints and maintains high-frequency WebSocket (`ws://`) connections for live telemetry.
+* **Database (PostgreSQL + PostGIS):** Relational state and multi-tenant isolation (via Row-Level Security) are managed in PostgreSQL. PostGIS powers all complex spatial queries, such as identifying shipments intersecting with dynamic disruption zones (e.g., severe weather radiuses).
+* **Cache & Pub/Sub (Redis):** Handles session caching, rate limiting, and highly concurrent WebSocket broadcast channels for fleet-wide updates.
+
+### 🤖 Agentic AI & Model Context Protocol (MCP)
+The "brain" of the platform is built on multiple autonomous background agents utilizing Google's `gemini-1.5-flash` model, operating via the **Model Context Protocol (MCP)**:
+* **Sentinel Agent:** An APScheduler-driven worker that polls global data sources and calculates geospatial risks.
+* **Decision Agent:** Triggered by Sentinel when critical risks (e.g., risk score > 0.85) are detected. It autonomously queries the MCP routing tools to evaluate alternative paths and executes reroutes.
+* **Copilot Agent:** An interactive NLP interface that categorizes user intents (e.g., "Where is my shipment?", "What is the flood risk on route A?") and executes specific tools to generate actionable answers.
+* **MCP Tool Servers:** Internal micro-services that expose standardized functions to the LLM (e.g., NASA FIRMS for fire alerts, Open-Meteo for flood risks, OSRM for multimodal routing).
+
+---
+
+## 🔄 Application Workflow
+
+The following outlines how data flows through LogistiQ from monitoring to autonomous execution:
+
+1. **Telemetry & Ingestion:** Shipment locations, vehicle telemetry, and external disruption data (via GDELT RSS feeds for news, or MCP services for weather/fire) are constantly ingested and processed by the FastAPI backend.
+2. **Risk Analysis:** The Sentinel Agent periodically (every 5 mins) evaluates the coordinates of all `IN_TRANSIT` shipments against active disruption polygons (using PostGIS `ST_DWithin`). A risk score is computed by aggregating MCP signals.
+3. **Alerting & UI Update:** If a risk threshold is breached (e.g., > 0.70), the backend publishes a payload to Redis. The WebSocket server pushes this to connected frontend clients, immediately rendering a hazard overlay on the operator's `deck.gl` map and triggering a visual alert.
+4. **Autonomous Action:** If the risk score hits critical levels (e.g., > 0.85), the Sentinel Agent delegates the task to the Decision Agent. The Decision Agent uses the Routing MCP to find alternative, safe multi-modal paths, automatically executes the reroute in the database, logs an `AgentDecision` for the audit trail, and pushes a real-time update to the dashboard.
 
 ---
 
