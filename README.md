@@ -1,4 +1,4 @@
-# LogistiQ 🚀
+# LogistiQ AI 🚀
 
 **An AI-driven logistics optimization platform enabling real-time geospatial intelligence, autonomous rerouting, and predictive supply chain management.**
 
@@ -140,6 +140,7 @@ DATABASE_URL=postgresql+asyncpg://<USER>:<PASSWORD>@localhost:5432/<DB_NAME>
 REDIS_URL=redis://localhost:6379
 SECRET_KEY=<YOUR_SUPER_SECRET_JWT_KEY>
 GEMINI_API_KEY=<YOUR_GOOGLE_GEMINI_KEY>
+GEMINI_MODLE=<YOUR_GOOGLE_GEMINI_MODEL>
 ENVIRONMENT=development
 ```
 
@@ -147,7 +148,7 @@ ENVIRONMENT=development
 ```env
 VITE_API_URL=http://localhost:8000/api/v1
 VITE_WS_URL=ws://localhost:8000
-VITE_STADIA_MAPS_API_KEY=<OPTIONAL_STADIA_KEY>
+VITE_STADIA_MAPS_API_KEY=<STADIA_KEY>
 ```
 
 ---
