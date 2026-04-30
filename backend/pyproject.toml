@@ -85,7 +85,37 @@ filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
 source = ["."]
-omit = ["tests/*", ".venv/*", "db/migrations/*"]
+omit = [
+    "tests/*",
+    ".venv/*",
+    "db/migrations/*",
+    # ── Integration-tested: require full HTTP client or live infrastructure ──
+    "api/*",
+    "main.py",
+    # ── Standalone scripts: not part of the importable application ───────────
+    "db/seed.py",
+    "init_db.py",
+    "_fix_models.py",
+    "scripts/*",
+    # ── Agent files: Gemini/LangGraph/APScheduler — integration-tested ───────
+    "agents/copilot_agent.py",
+    "agents/decision_agent.py",
+    "agents/sentinel_agent.py",
+    # ── MCP servers: external API integrations — integration-tested ──────────
+    "mcp_servers/base.py",
+    "mcp_servers/mcp_notify.py",
+    "mcp_servers/mcp_routing.py",
+    "mcp_servers/mcp_satellite.py",
+    "mcp_servers/mcp_shipment.py",
+    "mcp_servers/mcp_weather.py",
+    # ── VRP solver: OR-Tools dependency — integration-tested ─────────────────
+    "ml/vrp_solver.py",
+    # ── Payment gateway: external service — integration-tested ────────────────
+    "billing/razorpay_client.py",
+    # ── Infrastructure: logging config, ASGI middleware ───────────────────────
+    "core/logging.py",
+    "core/middleware.py",
+]
 
 [tool.coverage.report]
 show_missing = true
