@@ -41,7 +41,7 @@ async def _register(client: AsyncClient, email: str) -> str:
     which satisfies require_role(MANAGER) because ADMIN passes any role check.
     """
     resp = await client.post(
-        "/auth/register",
+        "/api/v1/auth/register",
         json={
             "email": email,
             "password": "Pass123!",
@@ -75,7 +75,7 @@ _VALID_DISRUPTION = {
 @pytest.mark.asyncio
 async def test_list_disruptions_empty(app_client: AsyncClient, redis_mock):
     token = await _register(app_client, "disrlist@test.com")
-    resp = await app_client.get("/disruptions", headers=_auth(token))
+    resp = await app_client.get("/api/v1/disruptions", headers=_auth(token))
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] == 0
@@ -87,7 +87,7 @@ async def test_list_disruptions_empty(app_client: AsyncClient, redis_mock):
 
 @pytest.mark.asyncio
 async def test_list_disruptions_requires_auth(app_client: AsyncClient):
-    resp = await app_client.get("/disruptions")
+    resp = await app_client.get("/api/v1/disruptions")
     # HTTPBearer returns 403 when no credentials provided
     assert resp.status_code == 403
 
@@ -103,7 +103,7 @@ async def test_report_disruption_success(app_client: AsyncClient, redis_mock):
     # Patch `text()` in disruption_routes so SQLite doesn't receive ST_GeomFromEWKT()
     with patch("api.disruption_routes.text", side_effect=lambda s: s):
         resp = await app_client.post(
-            "/disruptions",
+            "/api/v1/disruptions",
             headers=_auth(token),
             json=_VALID_DISRUPTION,
         )
@@ -123,7 +123,7 @@ async def test_report_disruption_missing_required_fields(app_client: AsyncClient
     """POST without required lat/lon/type → 422 Unprocessable Entity."""
     token = await _register(app_client, "disrbad@test.com")
     resp = await app_client.post(
-        "/disruptions",
+        "/api/v1/disruptions",
         headers=_auth(token),
         json={"description": "Missing type and coords"},
     )
@@ -135,7 +135,7 @@ async def test_report_disruption_invalid_type(app_client: AsyncClient, redis_moc
     """POST with an unrecognised disruption type → 422."""
     token = await _register(app_client, "disrbadtype@test.com")
     payload = {**_VALID_DISRUPTION, "type": "alien_invasion"}
-    resp = await app_client.post("/disruptions", headers=_auth(token), json=payload)
+    resp = await app_client.post("/api/v1/disruptions", headers=_auth(token), json=payload)
     assert resp.status_code == 422
 
 
@@ -144,7 +144,7 @@ async def test_report_disruption_lat_out_of_range(app_client: AsyncClient, redis
     """Latitude > 90 should fail Pydantic validation."""
     token = await _register(app_client, "disrlat@test.com")
     payload = {**_VALID_DISRUPTION, "lat": 999.0}
-    resp = await app_client.post("/disruptions", headers=_auth(token), json=payload)
+    resp = await app_client.post("/api/v1/disruptions", headers=_auth(token), json=payload)
     assert resp.status_code == 422
 
 
@@ -156,7 +156,7 @@ async def test_get_disruption_not_found(app_client: AsyncClient, redis_mock):
     """Fetching a non-existent disruption ID returns 404."""
     token = await _register(app_client, "disrnotfound@test.com")
     fake_id = str(uuid.uuid4())
-    resp = await app_client.get(f"/disruptions/{fake_id}", headers=_auth(token))
+    resp = await app_client.get(f"/api/v1/disruptions/{fake_id}", headers=_auth(token))
     assert resp.status_code == 404
     assert resp.json()["error"] == "not_found"
 
@@ -165,7 +165,7 @@ async def test_get_disruption_not_found(app_client: AsyncClient, redis_mock):
 async def test_get_disruption_invalid_uuid(app_client: AsyncClient, redis_mock):
     """Malformed UUID in path → 422 from FastAPI path validator."""
     token = await _register(app_client, "disrinvid@test.com")
-    resp = await app_client.get("/disruptions/not-a-uuid", headers=_auth(token))
+    resp = await app_client.get("/api/v1/disruptions/not-a-uuid", headers=_auth(token))
     assert resp.status_code == 422
 
 
@@ -214,7 +214,7 @@ async def test_get_disruption_success(app_client: AsyncClient, redis_mock, db_se
     await db_session.commit()
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
-    resp = await app_client.get(f"/disruptions/{event.id}", headers=_auth(token))
+    resp = await app_client.get(f"/api/v1/disruptions/{event.id}", headers=_auth(token))
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == event.id
@@ -230,7 +230,7 @@ async def test_resolve_disruption_not_found(app_client: AsyncClient, redis_mock)
     """Resolve a non-existent disruption → 404."""
     token = await _register(app_client, "disrresnotfound@test.com")
     fake_id = str(uuid.uuid4())
-    resp = await app_client.patch(f"/disruptions/{fake_id}/resolve", headers=_auth(token))
+    resp = await app_client.patch(f"/api/v1/disruptions/{fake_id}/resolve", headers=_auth(token))
     assert resp.status_code == 404
     assert resp.json()["error"] == "not_found"
 
@@ -277,7 +277,7 @@ async def test_resolve_disruption_success(app_client: AsyncClient, redis_mock, d
     await db_session.commit()
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
-    resp = await app_client.patch(f"/disruptions/{event.id}/resolve", headers=_auth(token))
+    resp = await app_client.patch(f"/api/v1/disruptions/{event.id}/resolve", headers=_auth(token))
     assert resp.status_code == 200
     assert resp.json()["status"] == "resolved"
 
@@ -326,7 +326,7 @@ async def test_resolve_already_resolved_returns_422(
     await db_session.commit()
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
-    resp = await app_client.patch(f"/disruptions/{event.id}/resolve", headers=_auth(token))
+    resp = await app_client.patch(f"/api/v1/disruptions/{event.id}/resolve", headers=_auth(token))
     assert resp.status_code == 422
     assert resp.json()["error"] == "validation_error"
 
@@ -340,7 +340,7 @@ async def test_affected_shipments_not_found(app_client: AsyncClient, redis_mock)
     token = await _register(app_client, "affectednf@test.com")
     fake_id = str(uuid.uuid4())
     resp = await app_client.get(
-        f"/disruptions/affected?disruption_id={fake_id}",
+        f"/api/v1/disruptions/affected?disruption_id={fake_id}",
         headers=_auth(token),
     )
     assert resp.status_code == 404
@@ -389,7 +389,7 @@ async def test_affected_shipments_returns_list(app_client: AsyncClient, redis_mo
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
     resp = await app_client.get(
-        f"/disruptions/affected?disruption_id={event.id}",
+        f"/api/v1/disruptions/affected?disruption_id={event.id}",
         headers=_auth(token),
     )
     # Spatial SQL fails gracefully under SQLite → route returns [] not an error
@@ -449,7 +449,7 @@ async def test_list_disruptions_filter_by_type(app_client: AsyncClient, redis_mo
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
     resp = await app_client.get(
-        "/disruptions?type=weather",
+        "/api/v1/disruptions?type=weather",
         headers=_auth(token),
     )
     assert resp.status_code == 200
@@ -501,7 +501,7 @@ async def test_list_disruptions_filter_by_severity(app_client: AsyncClient, redi
     await db_session.commit()
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
-    resp = await app_client.get("/disruptions?severity=critical", headers=_auth(token))
+    resp = await app_client.get("/api/v1/disruptions?severity=critical", headers=_auth(token))
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] == 2
@@ -552,11 +552,11 @@ async def test_list_resolved_disruptions(app_client: AsyncClient, redis_mock, db
     token = create_access_token(str(user.id), str(tenant.id), "admin")
 
     # Default (active) should return 0
-    active_resp = await app_client.get("/disruptions", headers=_auth(token))
+    active_resp = await app_client.get("/api/v1/disruptions", headers=_auth(token))
     assert active_resp.json()["total"] == 0
 
     # Resolved filter should return 1
-    resolved_resp = await app_client.get("/disruptions?status=resolved", headers=_auth(token))
+    resolved_resp = await app_client.get("/api/v1/disruptions?status=resolved", headers=_auth(token))
     assert resolved_resp.json()["total"] == 1
 
 
@@ -607,5 +607,5 @@ async def test_disruption_tenant_isolation(app_client: AsyncClient, redis_mock, 
 
     # User A tries to access Tenant B's disruption → 403
     token_a = create_access_token(str(user_a.id), str(tenant_a.id), "admin")
-    resp = await app_client.get(f"/disruptions/{event_b.id}", headers=_auth(token_a))
+    resp = await app_client.get(f"/api/v1/disruptions/{event_b.id}", headers=_auth(token_a))
     assert resp.status_code == 403

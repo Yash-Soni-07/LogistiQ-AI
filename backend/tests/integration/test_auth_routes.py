@@ -11,7 +11,7 @@ from httpx import AsyncClient
 @pytest.mark.asyncio
 async def test_register_creates_tokens(app_client: AsyncClient):
     resp = await app_client.post(
-        "/auth/register",
+        "/api/v1/auth/register",
         json={
             "email": "newuser@test.com",
             "password": "StrongPass123!",
@@ -36,8 +36,8 @@ async def test_register_duplicate_email(app_client: AsyncClient):
         "first_name": "A",
         "last_name": "B",
     }
-    await app_client.post("/auth/register", json=payload)
-    resp = await app_client.post("/auth/register", json=payload)
+    await app_client.post("/api/v1/auth/register", json=payload)
+    resp = await app_client.post("/api/v1/auth/register", json=payload)
     assert resp.status_code == 400
     assert "already registered" in resp.json()["detail"].lower()
 
@@ -49,7 +49,7 @@ async def test_register_duplicate_email(app_client: AsyncClient):
 async def test_login_valid_credentials(app_client: AsyncClient):
     # Register first
     await app_client.post(
-        "/auth/register",
+        "/api/v1/auth/register",
         json={
             "email": "login@test.com",
             "password": "MyPass123!",
@@ -59,7 +59,7 @@ async def test_login_valid_credentials(app_client: AsyncClient):
         },
     )
     resp = await app_client.post(
-        "/auth/login",
+        "/api/v1/auth/login",
         json={
             "email": "login@test.com",
             "password": "MyPass123!",
@@ -72,7 +72,7 @@ async def test_login_valid_credentials(app_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_login_wrong_password(app_client: AsyncClient):
     await app_client.post(
-        "/auth/register",
+        "/api/v1/auth/register",
         json={
             "email": "badpw@test.com",
             "password": "CorrectPw!",
@@ -82,7 +82,7 @@ async def test_login_wrong_password(app_client: AsyncClient):
         },
     )
     resp = await app_client.post(
-        "/auth/login",
+        "/api/v1/auth/login",
         json={
             "email": "badpw@test.com",
             "password": "WrongPw!",
@@ -94,7 +94,7 @@ async def test_login_wrong_password(app_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_login_unknown_email(app_client: AsyncClient):
     resp = await app_client.post(
-        "/auth/login",
+        "/api/v1/auth/login",
         json={
             "email": "ghost@test.com",
             "password": "anything",
@@ -109,7 +109,7 @@ async def test_login_unknown_email(app_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_get_me_authenticated(app_client: AsyncClient):
     reg = await app_client.post(
-        "/auth/register",
+        "/api/v1/auth/register",
         json={
             "email": "me@test.com",
             "password": "Pass123!",
@@ -119,7 +119,7 @@ async def test_get_me_authenticated(app_client: AsyncClient):
         },
     )
     token = reg.json()["access_token"]
-    resp = await app_client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    resp = await app_client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["email"] == "me@test.com"
@@ -128,7 +128,7 @@ async def test_get_me_authenticated(app_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_get_me_unauthenticated(app_client: AsyncClient):
-    resp = await app_client.get("/auth/me")
+    resp = await app_client.get("/api/v1/auth/me")
     assert resp.status_code == 403  # HTTPBearer returns 403 when no credentials
 
 
@@ -138,7 +138,7 @@ async def test_get_me_unauthenticated(app_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_logout_succeeds(app_client: AsyncClient, redis_mock):
     reg = await app_client.post(
-        "/auth/register",
+        "/api/v1/auth/register",
         json={
             "email": "logout@test.com",
             "password": "Pass123!",
@@ -149,7 +149,7 @@ async def test_logout_succeeds(app_client: AsyncClient, redis_mock):
     )
     refresh_token = reg.json()["refresh_token"]
     resp = await app_client.post(
-        "/auth/logout",
+        "/api/v1/auth/logout",
         json={
             "access_token": reg.json()["access_token"],
             "refresh_token": refresh_token,
