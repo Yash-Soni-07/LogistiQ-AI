@@ -275,9 +275,9 @@ async def _prepare_simulation_shipments(
     seeded_count = 0
 
     # Full production demo: 9 shipments — 3 per transport mode
-    _DEMO_TARGET = 9
+    _demo_target = 9
 
-    if len(rows) < _DEMO_TARGET:
+    if len(rows) < _demo_target:
         if settings.TESTING or settings.is_production:
             raise ValidationError(
                 "At least 9 shipments are required to run the realtime simulation demo",
@@ -299,7 +299,7 @@ async def _prepare_simulation_shipments(
             ("Kolkata", "Mumbai", ShipmentMode.SEA),
             ("Surat", "Visakhapatnam", ShipmentMode.SEA),
         ]
-        missing = demo_seed_pairs[len(rows) : _DEMO_TARGET]
+        missing = demo_seed_pairs[len(rows) : _demo_target]
         await _seed_demo_shipments(db=db, tenant_id=tenant_id, city_mode_pairs=missing)
         rows = (await db.execute(_recent_shipments_stmt(tenant_id))).scalars().all()
         seeded_count = len(missing)
