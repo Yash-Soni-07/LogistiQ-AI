@@ -23,7 +23,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # ── 2. tenants — add spec columns ─────────────────────────────────────────
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='tenants' AND column_name='domain') THEN
@@ -31,7 +31,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='tenants' AND column_name='plan_tier') THEN
@@ -39,7 +39,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='tenants' AND column_name='razorpay_customer_id') THEN
@@ -47,7 +47,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='tenants' AND column_name='razorpay_subscription_id') THEN
@@ -55,7 +55,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='tenants' AND column_name='is_active') THEN
@@ -65,7 +65,7 @@ def upgrade() -> None:
     """)
 
     # ── 3. users — add spec columns ───────────────────────────────────────────
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='users' AND column_name='is_active') THEN
@@ -73,7 +73,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='users' AND column_name='last_login') THEN
@@ -94,7 +94,7 @@ def upgrade() -> None:
         ("co2_kg", "FLOAT NOT NULL DEFAULT 0.0"),
     ]
     for col_name, col_def in spec_shipment_cols:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_name='shipments' AND column_name='{col_name}') THEN
@@ -104,14 +104,14 @@ def upgrade() -> None:
         """)
 
     # Generate tracking_num for any existing rows before making NOT NULL
-    op.execute("""  # noqa: S608
+    op.execute("""
         UPDATE shipments
         SET tracking_num = CONCAT('TRK-', SUBSTRING(id::text, 1, 8))
         WHERE tracking_num IS NULL;
     """)
 
     # Add UNIQUE constraint on tracking_num (idempotent)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM pg_constraint
@@ -124,7 +124,7 @@ def upgrade() -> None:
 
     # ── 5. route_segments — Option B: drop shipment_id, add tenant_id ─────────
     # Drop FK constraint first (ignore if already gone)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_constraint WHERE conname = 'route_segments_shipment_id_fkey'
@@ -133,7 +133,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF EXISTS (SELECT 1 FROM information_schema.columns
                        WHERE table_name='route_segments' AND column_name='shipment_id') THEN
@@ -153,7 +153,7 @@ def upgrade() -> None:
         ("last_scored_at", "TIMESTAMPTZ"),
     ]
     for col_name, col_def in route_segment_cols:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_name='route_segments' AND column_name='{col_name}') THEN
@@ -173,7 +173,7 @@ def upgrade() -> None:
         ("verified_at", "TIMESTAMPTZ"),
     ]
     for col_name, col_def in carrier_cols:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_name='carriers' AND column_name='{col_name}') THEN
@@ -194,7 +194,7 @@ def upgrade() -> None:
         ("battery_pct", "FLOAT"),
     ]
     for col_name, col_def in telemetry_cols:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_name='telemetry' AND column_name='{col_name}') THEN
@@ -204,7 +204,7 @@ def upgrade() -> None:
         """)
 
     # ── 8. news_alerts — remove tenant_id FK (global table per spec) ──────────
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_constraint WHERE conname = 'news_alerts_tenant_id_fkey'
@@ -217,7 +217,7 @@ def upgrade() -> None:
     op.execute("DROP POLICY IF EXISTS tenant_isolation ON news_alerts;")  # noqa: S608
     op.execute("ALTER TABLE news_alerts DISABLE ROW LEVEL SECURITY;")  # noqa: S608
 
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF EXISTS (SELECT 1 FROM information_schema.columns
                        WHERE table_name='news_alerts' AND column_name='tenant_id') THEN
@@ -240,7 +240,7 @@ def upgrade() -> None:
         ("status", "VARCHAR(50) NOT NULL DEFAULT 'active'"),
     ]
     for col_name, col_def in news_alert_cols:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_name='news_alerts' AND column_name='{col_name}') THEN
@@ -251,7 +251,7 @@ def upgrade() -> None:
 
     # ── 9. agent_decisions — remove old shipment FK coupling, add spec cols ───
     # Add disruption_id FK
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='agent_decisions' AND column_name='disruption_id') THEN
@@ -272,7 +272,7 @@ def upgrade() -> None:
         ("co2_delta", "FLOAT NOT NULL DEFAULT 0.0"),
     ]
     for col_name, col_def in agent_decision_cols:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_name='agent_decisions' AND column_name='{col_name}') THEN
@@ -282,7 +282,7 @@ def upgrade() -> None:
         """)
 
     # Make shipment_id nullable (it's now optional — disruption_id can be used instead)
-    op.execute("""  # noqa: S608
+    op.execute("""
         ALTER TABLE agent_decisions
             ALTER COLUMN shipment_id DROP NOT NULL;
     """)
@@ -295,7 +295,7 @@ def upgrade() -> None:
         ("amount_usd", "FLOAT NOT NULL DEFAULT 0.0"),
     ]
     for col_name, col_def in sub_event_cols:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                WHERE table_name='subscription_events' AND column_name='{col_name}') THEN
@@ -315,7 +315,7 @@ def upgrade() -> None:
     ]
     for idx_name, tbl, cols in indexes:
         col_list = ", ".join(cols)
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = '{idx_name}') THEN
                     CREATE INDEX {idx_name} ON {tbl} ({col_list});
@@ -324,7 +324,7 @@ def upgrade() -> None:
         """)
 
     # ── 12. RLS for route_segments (tenant-scoped now) ─────────────────────────
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             ALTER TABLE route_segments ENABLE ROW LEVEL SECURITY;
             IF NOT EXISTS (
@@ -366,7 +366,7 @@ def downgrade() -> None:
         "trace_id",
         "disruption_id",
     ]:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='agent_decisions' AND column_name='{col}') THEN
@@ -376,7 +376,7 @@ def downgrade() -> None:
         """)
 
     # ── Re-add tenant_id to news_alerts (restore old state) ──────────────────
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='news_alerts' AND column_name='tenant_id') THEN
@@ -386,7 +386,7 @@ def downgrade() -> None:
     """)
 
     # ── Restore route_segments.shipment_id ────────────────────────────────────
-    op.execute("""  # noqa: S608
+    op.execute("""
         DO $$ BEGIN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='route_segments' AND column_name='shipment_id') THEN
@@ -440,7 +440,7 @@ def downgrade() -> None:
         ("subscription_events", "plan_tier"),
         ("subscription_events", "amount_usd"),
     ]:
-        op.execute(f"""  # noqa: S608
+        op.execute(f"""
             DO $$ BEGIN
                 IF EXISTS (SELECT 1 FROM information_schema.columns
                            WHERE table_name='{tbl}' AND column_name='{col}') THEN
