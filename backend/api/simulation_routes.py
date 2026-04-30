@@ -274,20 +274,32 @@ async def _prepare_simulation_shipments(
     rows = (await db.execute(_recent_shipments_stmt(tenant_id))).scalars().all()
     seeded_count = 0
 
-    if len(rows) < 3:
+    # Full production demo: 9 shipments — 3 per transport mode
+    _DEMO_TARGET = 9
+
+    if len(rows) < _DEMO_TARGET:
         if settings.TESTING or settings.is_production:
             raise ValidationError(
-                "At least 3 shipments are required to run the realtime simulation demo",
+                "At least 9 shipments are required to run the realtime simulation demo",
                 field="shipments",
             )
 
-        # Seed exactly 1 shipment per transport mode with correct city pairs
-        demo_seed_pairs = [
+        # Seed 9 shipments across all three transport modes (3 each)
+        demo_seed_pairs: list[tuple[str, str, ShipmentMode]] = [
+            # Road (3 shipments)
             ("Mumbai", "Delhi", ShipmentMode.ROAD),
+            ("Pune", "Nagpur", ShipmentMode.ROAD),
+            ("Ahmedabad", "Jaipur", ShipmentMode.ROAD),
+            # Air (3 shipments)
             ("Bangalore", "Kolkata", ShipmentMode.AIR),
-            ("Chennai", "Mumbai", ShipmentMode.SEA),
+            ("Chennai", "Lucknow", ShipmentMode.AIR),
+            ("Hyderabad", "Delhi", ShipmentMode.AIR),
+            # Sea (3 shipments)
+            ("Mumbai", "Chennai", ShipmentMode.SEA),
+            ("Kolkata", "Mumbai", ShipmentMode.SEA),
+            ("Surat", "Visakhapatnam", ShipmentMode.SEA),
         ]
-        missing = demo_seed_pairs[len(rows) : 3]
+        missing = demo_seed_pairs[len(rows) : _DEMO_TARGET]
         await _seed_demo_shipments(db=db, tenant_id=tenant_id, city_mode_pairs=missing)
         rows = (await db.execute(_recent_shipments_stmt(tenant_id))).scalars().all()
         seeded_count = len(missing)
@@ -297,11 +309,12 @@ async def _prepare_simulation_shipments(
             seeded_count=seeded_count,
         )
 
-    selected = rows[:3]
+    selected = rows[:_DEMO_TARGET]
     simulations: list[SimulatedShipment] = []
 
     for idx, shipment in enumerate(selected):
-        mode = DEMO_MODE_SEQUENCE[idx]
+        # Cycle ROAD → AIR → SEA across the 9 slots (3 per mode)
+        mode = DEMO_MODE_SEQUENCE[idx % len(DEMO_MODE_SEQUENCE)]
         start_lon, start_lat = _coords_for_city(shipment.origin)
         end_lon, end_lat = _coords_for_city(shipment.destination)
         distance = _haversine_km(start_lon, start_lat, end_lon, end_lat)
@@ -507,7 +520,10 @@ async def start_simulation_demo(
     # Store for disruption endpoint
     _active_simulations[tenant_id] = simulated
 
-    mode_counts = {s.mode.value: 1 for s in simulated}
+    # Count actual mode distribution (not a dict comprehension that hardcodes 1)
+    mode_counts: dict[str, int] = {}
+    for s in simulated:
+        mode_counts[s.mode.value] = mode_counts.get(s.mode.value, 0) + 1
     return {
         "status": "started",
         "tenant_id": tenant_id,
