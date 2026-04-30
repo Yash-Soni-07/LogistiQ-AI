@@ -407,4 +407,3 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS shipmentstatus CASCADE")
     op.execute("DROP TYPE IF EXISTS shipmentmode CASCADE")
     op.execute("DROP TYPE IF EXISTS userrole CASCADE")
-

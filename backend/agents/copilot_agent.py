@@ -315,15 +315,15 @@ async def _handle_analytics(question: str, tenant_id: str, db: AsyncSession) -> 
         await db.execute(
             select(
                 func.count().label("total"),
-                func.sum(
-                    case((Shipment.status == ShipmentStatus.DELAYED, 1), else_=0)
-                ).label("delayed"),
-                func.sum(
-                    case((Shipment.status == ShipmentStatus.IN_TRANSIT, 1), else_=0)
-                ).label("in_transit"),
-                func.sum(
-                    case((Shipment.status == ShipmentStatus.DELIVERED, 1), else_=0)
-                ).label("delivered"),
+                func.sum(case((Shipment.status == ShipmentStatus.DELAYED, 1), else_=0)).label(
+                    "delayed"
+                ),
+                func.sum(case((Shipment.status == ShipmentStatus.IN_TRANSIT, 1), else_=0)).label(
+                    "in_transit"
+                ),
+                func.sum(case((Shipment.status == ShipmentStatus.DELIVERED, 1), else_=0)).label(
+                    "delivered"
+                ),
             ).where(Shipment.tenant_id == tenant_id)
         )
     ).one()
