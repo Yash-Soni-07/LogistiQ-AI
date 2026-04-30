@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Play, CheckCircle2, Route, ArrowRight, Zap, Target, Leaf, Activity, AlertTriangle, Flame, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { apiClient } from '@/lib/api';
+import { toast } from 'sonner';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,6 +73,7 @@ function buildCandidatesFromVRP(data: any): RouteCandidate[] {
       eta_hours: 0,
       distance_km: 0,
       carbon_delta: 0,
+      routeIndex: -1,
       segments: [
         { id: 's-origin', name: disruption.description?.split(' near')[0] || 'Origin', type: 'hub', status: 'clear', eta_mins: 0 },
         { id: 's-fire', name: `🔥 ${disruption.event_type || 'Fire'} Zone`, type: 'highway', status: 'blocked', eta_mins: 999 },
@@ -141,12 +145,39 @@ function buildCandidatesFromVRP(data: any): RouteCandidate[] {
 // ---------------------------------------------------------------------------
 
 export default function RouteOptimizerView() {
+  const navigate = useNavigate();
   const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
   const [disruption, setDisruption] = useState<DisruptionInfo | null>(null);
   const [bids] = useState<Bid[]>(MOCK_BIDS);
   const [timer, setTimer] = useState(45);
   const [solveInfo, setSolveInfo] = useState<{ tokens: number; fallback: boolean } | null>(null);
   const [waiting, setWaiting] = useState(true);
+  const [dispatching, setDispatching] = useState<string | null>(null); // route id being dispatched
+
+  const handleDispatch = async (candidate: RouteCandidate) => {
+    if (dispatching) return;
+    setDispatching(candidate.id);
+    try {
+      const res = await apiClient.post('/simulation/disruption/apply-route', {
+        route_index: candidate.routeIndex,
+      });
+      if (res.data.status === 'rerouted') {
+        toast.success(
+          `✅ Dispatched! Road shipment rerouted (${res.data.new_waypoints} waypoints). Map updating…`,
+          { duration: 5000 },
+        );
+        // Navigate to dashboard so user sees the map update
+        navigate('/');
+      } else {
+        toast.error(res.data.message ?? 'Dispatch failed — is simulation running?');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Network error';
+      toast.error(`Dispatch failed: ${msg}`);
+    } finally {
+      setDispatching(null);
+    }
+  };
 
   // Connect to VRP results WS
   useWebSocket('vrp-results', (msg) => {
@@ -302,9 +333,16 @@ export default function RouteOptimizerView() {
                           <Leaf size={14} />
                           {route.carbon_delta < 0 ? `${route.carbon_delta}t CO₂` : 'Green Mode'}
                         </button>
-                        <button className="flex items-center gap-2 px-4 py-1.5 bg-[var(--lq-cyan)] hover:opacity-90 text-white rounded-md text-sm font-semibold transition-opacity shadow-sm">
-                          <Zap size={14} />
-                          Dispatch
+                        <button
+                          id={`dispatch-route-${route.id}`}
+                          onClick={() => handleDispatch(route)}
+                          disabled={!!dispatching}
+                          className="flex items-center gap-2 px-4 py-1.5 bg-[var(--lq-cyan)] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-semibold transition-opacity shadow-sm"
+                        >
+                          {dispatching === route.id
+                            ? <><Loader2 size={14} className="animate-spin" /> Dispatching…</>
+                            : <><Zap size={14} /> Dispatch</>
+                          }
                         </button>
                       </div>
                     )}
