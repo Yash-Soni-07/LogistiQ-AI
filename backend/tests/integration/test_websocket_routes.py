@@ -333,11 +333,11 @@ async def test_connection_manager_broadcast(db_session, redis_mock):
     await mgr.connect(ws, "test:channel:1")  # type: ignore[arg-type]
 
     # Broadcast to a different channel — should NOT deliver
-    await mgr.broadcast_to_channel("test:channel:2", {"type": "nope"})
+    await mgr.broadcast("test:channel:2", {"type": "nope"})
     assert received == []
 
     # Broadcast to the correct channel — should deliver
-    await mgr.broadcast_to_channel("test:channel:1", {"type": "hit"})
+    await mgr.broadcast("test:channel:1", {"type": "hit"})
     assert len(received) == 1
     assert received[0]["type"] == "hit"
 
@@ -360,7 +360,7 @@ async def test_connection_manager_disconnect_cleans_up(db_session, redis_mock):
     await mgr.connect(ws, "channel:abc")  # type: ignore[arg-type]
     assert "channel:abc" in mgr.active_channels()
 
-    mgr.disconnect(ws, "channel:abc")  # type: ignore[arg-type]
+    await mgr.disconnect(ws, "channel:abc")  # type: ignore[arg-type]
     assert "channel:abc" not in mgr.active_channels()
 
 
@@ -383,5 +383,5 @@ async def test_connection_manager_connection_count(db_session, redis_mock):
     await mgr.connect(ws2, "ch:2")  # type: ignore[arg-type]
     assert mgr.connection_count() == 2
 
-    mgr.disconnect(ws1, "ch:1")  # type: ignore[arg-type]
+    await mgr.disconnect(ws1, "ch:1")  # type: ignore[arg-type]
     assert mgr.connection_count() == 1
