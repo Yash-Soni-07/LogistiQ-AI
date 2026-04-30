@@ -217,38 +217,28 @@ class RoutingMCPServer(MCPServer):
                     raise ValueError(f"Unknown tool: {name}")
         except Exception as exc:  # noqa: BLE001
             log.error("mcp.routing.tool_failed", tool=name, error=str(exc))
-            # Safe fallbacks per tool
+            # Safe fallbacks per tool — use the exact fields defined in each model above
             if name == "get_route":
                 return RouteResult(
-                    route_id="fallback_route",
-                    cost_inr=0.0,
-                    eta_h=0.0,
-                    risk_score=0.0,
-                    co2_kg=0.0,
-                    mode="road",
-                    geometry={"type": "LineString", "coordinates": []},
+                    origin_id=params.get("origin_id", ""),
+                    dest_id=params.get("dest_id", ""),
                     distance_km=0.0,
-                    duration_h=0.0,
+                    duration_min=0.0,
                 ).model_dump()
             elif name in ("get_alternatives", "get_multimodal_options"):
                 return []
             elif name == "get_eta":
                 return ETAResult(
                     shipment_id=params.get("shipment_id", ""),
-                    current_lat=0.0,
-                    current_lon=0.0,
-                    status="delayed",
-                    delay_h=0.0,
-                    new_eta_utc="",
+                    estimated_arrival_utc="",
                     confidence=0.0,
                 ).model_dump()
             elif name == "check_route_risk":
                 return RouteRiskResult(
                     route_id=params.get("route_id", ""),
-                    risk_score=0.0,
-                    max_risk_segment="",
-                    risk_factors={},
-                    is_viable=True,
+                    overall_risk=0.0,
+                    risk_factors=[],
+                    recommendation="Fallback: unable to assess risk.",
                 ).model_dump()
             return {}
 

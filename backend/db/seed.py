@@ -415,8 +415,8 @@ async def main():
             await create_news_alerts(session, tenant.id)
 
             # Create subscription events
-            users = await session.execute(select(User).where(User.tenant_id == tenant.id))
-            users = users.scalars().all()
+            users_result = await session.execute(select(User).where(User.tenant_id == tenant.id))
+            users = list(users_result.scalars().all())
             await create_subscription_events(session, tenant.id, users)
 
         logger.info("Seeding completed successfully")

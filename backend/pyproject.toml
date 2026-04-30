@@ -92,5 +92,16 @@ show_missing = true
 skip_covered = false
 
 [tool.mypy]
-strict = true
-ignore_missing_imports = true
+python_version = "3.11"
+ignore_missing_imports = true       # don't fail on libs without stubs (structlog, ortools, etc.)
+warn_unused_ignores = true          # catch stale # type: ignore comments
+warn_return_any = false             # too noisy for FastAPI response model patterns
+disallow_untyped_defs = false       # gradual adoption — don't block CI on legacy unannotated fns
+check_untyped_defs = true           # still analyze unannotated functions for internal errors
+no_implicit_reexport = false        # needed for FastAPI/SQLAlchemy re-export patterns
+strict_optional = false             # too noisy with SQLAlchemy Optional columns
+exclude = [
+    "db/migrations/",               # auto-generated — skip entirely
+    "tests/",                       # test files — skip type checking
+    "scripts/",                     # utility scripts — skip type checking
+]

@@ -117,7 +117,7 @@ async def fetch_gdelt() -> list[Article]:
     articles = []
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(_GDELT_URL, params=params, timeout=15.0)
+            resp = await client.get(_GDELT_URL, params=params, timeout=15.0)  # type: ignore[arg-type]
             resp.raise_for_status()
             data = resp.json()
             for art in data.get("articles", []):
@@ -178,7 +178,7 @@ async def geocode_location(location: str) -> tuple[float, float] | None:
 
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=params, headers=headers, timeout=10.0)
+            resp = await client.get(url, params=params, headers=headers, timeout=10.0)  # type: ignore[arg-type]
             resp.raise_for_status()
             data = resp.json()
             if data and len(data) > 0:

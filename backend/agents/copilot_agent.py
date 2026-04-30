@@ -345,7 +345,7 @@ async def _handle_analytics(question: str, tenant_id: str, db: AsyncSession) -> 
 
 async def _handle_with_gemini(question: str, tenant_id: str) -> CopilotResponse:
     """Use Gemini 1.5 Flash for general / unclassified questions."""
-    import google.generativeai as genai  # type: ignore[import]
+    import google.generativeai as genai
 
     genai.configure(api_key=settings.GEMINI_API_KEY)
     model = genai.GenerativeModel(

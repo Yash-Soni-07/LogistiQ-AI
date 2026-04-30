@@ -566,12 +566,12 @@ async def find_alternates(
     routing_client = (mcp_clients or {}).get("routing")
     if routing_client:
         try:
-            result = await routing_client.call(
+            mcp_result = await routing_client.call(
                 "get_alternatives",
                 {"blocked_segment_id": blocked_segment_id, "n": n * 3},  # over-fetch
             )
-            if isinstance(result, list):
-                for r in result:
+            if isinstance(mcp_result, list):
+                for r in mcp_result:
                     candidates.append(
                         {
                             "route_id": r.get("route_id", str(uuid.uuid4())),

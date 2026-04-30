@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     # Access as a list via settings.cors_origins (used in main.py CORSMiddleware).
     ALLOWED_ORIGINS: str = "http://localhost,http://localhost:3000,http://localhost:5173"
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def cors_origins(self) -> list[str]:
         """Parse ALLOWED_ORIGINS into a list, accepting CSV or JSON-array format."""

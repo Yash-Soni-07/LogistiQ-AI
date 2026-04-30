@@ -207,8 +207,8 @@ async def simulate_disruption(
     }
 
     tenant_id = str(current_user.tenant_id)
-    await manager.broadcast_to_channel(f"tenant:{tenant_id}:disruptions", payload)
-    await manager.broadcast_to_channel(
+    await manager.broadcast(f"tenant:{tenant_id}:disruptions", payload)
+    await manager.broadcast(
         f"tenant:{tenant_id}:dashboard",
         {
             "type": "tick",

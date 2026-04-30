@@ -263,7 +263,7 @@ async def gemini_select_node(state: AgentState) -> AgentState:
         if isinstance(final_response, AIMessage) and final_response.tool_calls:
             actions = final_response.tool_calls
 
-        return {**state, "selected_actions": actions, "gemini_tokens_used": tokens}
+        return {**state, "selected_actions": actions, "gemini_tokens_used": tokens}  # type: ignore[typeddict-item]
     except Exception as exc:
         log.error("agent.gemini.error", error=str(exc))
         raise

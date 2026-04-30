@@ -75,8 +75,8 @@ def _build_mcp_clients() -> dict[str, MCPClient]:
     from mcp_servers.mcp_weather import weather_mcp
 
     return {
-        "weather": InProcessMCPClient(weather_mcp),  # type: ignore[arg-type]
-        "satellite": InProcessMCPClient(satellite_mcp),  # type: ignore[arg-type]
+        "weather": InProcessMCPClient(weather_mcp),
+        "satellite": InProcessMCPClient(satellite_mcp),
     }
 
 
@@ -150,7 +150,7 @@ class SentinelAgent:
                 log.error("sentinel.score_route.error", error=str(res))
                 continue
 
-            seg, risk = res
+            seg, risk = res  # type: ignore[misc]  # guarded by isinstance(res, Exception) above
             new_risk = risk.risk_score
             old_risk = float(seg.old_risk_score) if seg.old_risk_score is not None else 0.0
 
