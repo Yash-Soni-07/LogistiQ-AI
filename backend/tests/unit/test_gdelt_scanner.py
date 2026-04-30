@@ -63,9 +63,7 @@ def test_classify_article_known_signals(text: str, expected_category: str) -> No
 
 def test_classify_article_no_match() -> None:
     """Irrelevant text must return None — no false positives."""
-    result = _classify_article(
-        "Scientists discover new species of beetle in Amazon rainforest"
-    )
+    result = _classify_article("Scientists discover new species of beetle in Amazon rainforest")
     assert result is None
 
 
