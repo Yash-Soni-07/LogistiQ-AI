@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Clock, CornerUpRight, Search, Activity,
-  CheckCircle2, ShieldAlert, Loader2, MapPin, Package, Shield,
+  CheckCircle2, ShieldAlert, Loader2, MapPin, Shield,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 
@@ -96,7 +96,6 @@ export default function RiskPage() {
   });
 
   const disruptions = disruptionsData?.items ?? [];
-  const total = disruptionsData?.total ?? 0;
 
   // Filter & sort
   const filtered = useMemo(() => {
@@ -127,7 +126,6 @@ export default function RiskPage() {
   }
 
   // KPIs
-  const activeCount = statusFilter === 'active' ? total : 0;
   const delayedPct = summary ? (summary.delayed / Math.max(1, summary.total_shipments) * 100).toFixed(1) : '—';
 
   return (

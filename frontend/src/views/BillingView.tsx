@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { 
-  Check, Shield, Zap, Globe, Package, Cloud, Truck, 
+  Check, Shield, Zap, Globe, Package, Cloud,
   Factory, Users, Terminal, CreditCard, ExternalLink,
   Loader2, BadgeCheck, AlertCircle, TrendingUp
 } from 'lucide-react';
@@ -98,7 +98,7 @@ export default function BillingView() {
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { data: status, isLoading: statusLoading } = useQuery({
+  const { data: status, isLoading: _statusLoading } = useQuery({
     queryKey: ['billing', 'status'],
     queryFn: async () => {
       const res = await apiClient.get('/billing/status');

@@ -196,33 +196,33 @@ const ROUTE_NODES = [
 /** Abstract highway corridors */
 const ROUTE_PATHS = [
   // NH-44 corridor (Delhi → Bangalore)
-  { id: 'p1', d: 'M580,280 C580,380 560,440 460,500',                   w: 1.2, dur: 10, delay: 0,   bright: true },
-  { id: 'p2', d: 'M460,500 C520,540 600,560 680,600',                    w: 1.0, dur: 12, delay: 1,   bright: false },
-  { id: 'p3', d: 'M680,600 C710,650 730,680 750,720',                    w: 1.0, dur: 11, delay: 0.5, bright: false },
+  { id: 'p1', d: 'M580,280 C580,380 560,440 460,500', w: 1.2, dur: 10, delay: 0, bright: true },
+  { id: 'p2', d: 'M460,500 C520,540 600,560 680,600', w: 1.0, dur: 12, delay: 1, bright: false },
+  { id: 'p3', d: 'M680,600 C710,650 730,680 750,720', w: 1.0, dur: 11, delay: 0.5, bright: false },
   // NH-48 corridor (Delhi → Ahmedabad → Mumbai)
-  { id: 'p4', d: 'M580,280 C520,310 440,340 370,380',                    w: 1.1, dur: 9,  delay: 2,   bright: true },
-  { id: 'p5', d: 'M370,380 C400,430 430,470 460,500',                    w: 0.8, dur: 10, delay: 1.5, bright: false },
+  { id: 'p4', d: 'M580,280 C520,310 440,340 370,380', w: 1.1, dur: 9, delay: 2, bright: true },
+  { id: 'p5', d: 'M370,380 C400,430 430,470 460,500', w: 0.8, dur: 10, delay: 1.5, bright: false },
   // Eastern corridor (Delhi → Lucknow → Kolkata)
-  { id: 'p6', d: 'M580,280 C630,300 670,320 720,350',                    w: 0.9, dur: 11, delay: 0.8, bright: false },
-  { id: 'p7', d: 'M720,350 C770,370 810,390 850,420',                    w: 0.8, dur: 13, delay: 2.5, bright: false },
+  { id: 'p6', d: 'M580,280 C630,300 670,320 720,350', w: 0.9, dur: 11, delay: 0.8, bright: false },
+  { id: 'p7', d: 'M720,350 C770,370 810,390 850,420', w: 0.8, dur: 13, delay: 2.5, bright: false },
   // Southern spokes
-  { id: 'p8', d: 'M750,720 C780,740 800,750 820,760',                    w: 0.7, dur: 8,  delay: 1,   bright: false },
-  { id: 'p9', d: 'M460,500 C480,570 500,620 520,650',                    w: 0.7, dur: 9,  delay: 3,   bright: false },
+  { id: 'p8', d: 'M750,720 C780,740 800,750 820,760', w: 0.7, dur: 8, delay: 1, bright: false },
+  { id: 'p9', d: 'M460,500 C480,570 500,620 520,650', w: 0.7, dur: 9, delay: 3, bright: false },
   // Cross-links
-  { id: 'p10', d: 'M850,420 C820,500 780,560 680,600',                   w: 0.6, dur: 14, delay: 1.2, bright: false },
-  { id: 'p11', d: 'M520,650 Q600,660 680,600',                           w: 0.6, dur: 10, delay: 2.8, bright: false },
+  { id: 'p10', d: 'M850,420 C820,500 780,560 680,600', w: 0.6, dur: 14, delay: 1.2, bright: false },
+  { id: 'p11', d: 'M520,650 Q600,660 680,600', w: 0.6, dur: 10, delay: 2.8, bright: false },
   // Faint long-distance arcs
-  { id: 'p12', d: 'M370,380 Q250,550 460,500',                           w: 0.5, dur: 15, delay: 4,   bright: false },
-  { id: 'p13', d: 'M580,280 Q900,300 850,420',                           w: 0.5, dur: 16, delay: 3.5, bright: false },
+  { id: 'p12', d: 'M370,380 Q250,550 460,500', w: 0.5, dur: 15, delay: 4, bright: false },
+  { id: 'p13', d: 'M580,280 Q900,300 850,420', w: 0.5, dur: 16, delay: 3.5, bright: false },
 ] as const;
 
 /** Animated dots that travel along specific route paths */
 const DATA_PACKETS = [
-  { id: 'dp1', path: 'M580,280 C580,380 560,440 460,500',                r: 2.5, dur: 6,  delay: 0 },
-  { id: 'dp2', path: 'M460,500 C520,540 600,560 680,600',                r: 2,   dur: 7,  delay: 3 },
-  { id: 'dp3', path: 'M580,280 C520,310 440,340 370,380',                r: 2,   dur: 5,  delay: 1.5 },
-  { id: 'dp4', path: 'M680,600 C710,650 730,680 750,720',                r: 2,   dur: 4,  delay: 5 },
-  { id: 'dp5', path: 'M720,350 C770,370 810,390 850,420',                r: 1.8, dur: 5,  delay: 7 },
+  { id: 'dp1', path: 'M580,280 C580,380 560,440 460,500', r: 2.5, dur: 6, delay: 0 },
+  { id: 'dp2', path: 'M460,500 C520,540 600,560 680,600', r: 2, dur: 7, delay: 3 },
+  { id: 'dp3', path: 'M580,280 C520,310 440,340 370,380', r: 2, dur: 5, delay: 1.5 },
+  { id: 'dp4', path: 'M680,600 C710,650 730,680 750,720', r: 2, dur: 4, delay: 5 },
+  { id: 'dp5', path: 'M720,350 C770,370 810,390 850,420', r: 1.8, dur: 5, delay: 7 },
 ] as const;
 
 /** Frosted-glass metric cards */

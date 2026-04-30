@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, CheckCircle2, Route, ArrowRight, Zap, Target, Leaf, Activity, AlertTriangle, Flame, Loader2 } from 'lucide-react';
+import { Play, CheckCircle2, Route, ArrowRight, Zap, Target, Leaf, Activity, Flame, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { apiClient } from '@/lib/api';
@@ -85,7 +85,7 @@ function buildCandidatesFromVRP(data: any): RouteCandidate[] {
   // Parse alternatives from decision agent
   const routeEntries = Object.entries(altRoutes);
   if (routeEntries.length > 0) {
-    routeEntries.forEach(([shipId, routes]: [string, any]) => {
+    routeEntries.forEach(([_shipId, routes]: [string, any]) => {
       if (!Array.isArray(routes)) return;
       routes.forEach((r: any, idx: number) => {
         candidates.push({

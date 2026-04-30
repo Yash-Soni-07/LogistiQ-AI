@@ -224,8 +224,8 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
       capRounded: true,
       jointRounded: true,
       billboard: true,
-      getDashArray: [8, 6],
       extensions: [new PathStyleExtension({ dash: true })],
+      ...({ getDashArray: [8, 6] } as Record<string, unknown>),
       updateTriggers: { getPath: updateKey },
     }),
 

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   User, Shield, Bell, Palette, Cpu, LogOut, Save, CheckCircle2,
-  Moon, Sun, Monitor, ChevronRight, Building2, Mail, KeyRound,
+  Moon, Sun, Monitor,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
 import { useAuthStore } from '@/stores/auth.store';

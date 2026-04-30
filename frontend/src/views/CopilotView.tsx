@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Bot, User, ChevronRight, ChevronDown, Terminal, Activity,
-  Zap, Server, MessageSquare, Plus, ExternalLink, AlertTriangle, CheckCircle2, Loader2,
+  Zap, Server, MessageSquare, Plus, ExternalLink, AlertTriangle, Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
