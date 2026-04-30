@@ -49,7 +49,9 @@ async def test_summary_has_correct_keys(app_client: AsyncClient, redis_mock):
             },
         )
     ).json()["access_token"]
-    resp = await app_client.get("/api/v1/analytics/summary", headers={"Authorization": f"Bearer {token}"})
+    resp = await app_client.get(
+        "/api/v1/analytics/summary", headers={"Authorization": f"Bearer {token}"}
+    )
     assert resp.status_code == 200
     data = resp.json()
     for key in (
@@ -102,7 +104,9 @@ async def test_usage_stats_endpoint(app_client: AsyncClient, redis_mock):
         },
     )
     token = reg.json()["access_token"]
-    resp = await app_client.get("/api/v1/analytics/usage", headers={"Authorization": f"Bearer {token}"})
+    resp = await app_client.get(
+        "/api/v1/analytics/usage", headers={"Authorization": f"Bearer {token}"}
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "monthly_totals" in data

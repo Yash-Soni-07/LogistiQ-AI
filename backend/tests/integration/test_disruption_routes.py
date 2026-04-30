@@ -556,7 +556,9 @@ async def test_list_resolved_disruptions(app_client: AsyncClient, redis_mock, db
     assert active_resp.json()["total"] == 0
 
     # Resolved filter should return 1
-    resolved_resp = await app_client.get("/api/v1/disruptions?status=resolved", headers=_auth(token))
+    resolved_resp = await app_client.get(
+        "/api/v1/disruptions?status=resolved", headers=_auth(token)
+    )
     assert resolved_resp.json()["total"] == 1
 
 

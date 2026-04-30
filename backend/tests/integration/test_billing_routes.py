@@ -23,7 +23,9 @@ async def _admin_token(client: AsyncClient, email: str) -> str:
 @pytest.mark.asyncio
 async def test_billing_status_no_subscription(app_client: AsyncClient, redis_mock):
     token = await _admin_token(app_client, "bstatus@test.com")
-    resp = await app_client.get("/api/v1/billing/status", headers={"Authorization": f"Bearer {token}"})
+    resp = await app_client.get(
+        "/api/v1/billing/status", headers={"Authorization": f"Bearer {token}"}
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["plan_tier"] == "starter"
