@@ -55,24 +55,25 @@ async def register(data: schemas.RegisterRequest, db: AsyncSession = Depends(get
         await db.commit()
         await db.refresh(user)
 
-        # 2.5 Seed Demo Data
-        try:
-            from db.seed import (
-                create_carriers,
-                create_disruption_events,
-                create_news_alerts,
-                create_route_segments,
-                create_shipments,
-            )
+        # 2.5 Seed Demo Data (skipped in TESTING mode to preserve test isolation)
+        if not settings.TESTING:
+            try:
+                from db.seed import (
+                    create_carriers,
+                    create_disruption_events,
+                    create_news_alerts,
+                    create_route_segments,
+                    create_shipments,
+                )
 
-            carriers = await create_carriers(db, str(tenant.id))
-            shipments = await create_shipments(db, str(tenant.id), carriers)
-            await create_route_segments(db, shipments)
-            await create_disruption_events(db, str(tenant.id))
-            await create_news_alerts(db, str(tenant.id))
-            logger.info("Demo data seeded for new tenant", tenant_id=str(tenant.id))
-        except Exception as seed_err:
-            logger.warning("Failed to seed demo data", error=str(seed_err))
+                carriers = await create_carriers(db, str(tenant.id))
+                shipments = await create_shipments(db, str(tenant.id), carriers)
+                await create_route_segments(db, shipments)
+                await create_disruption_events(db, str(tenant.id))
+                await create_news_alerts(db, str(tenant.id))
+                logger.info("Demo data seeded for new tenant", tenant_id=str(tenant.id))
+            except Exception as seed_err:
+                logger.warning("Failed to seed demo data", error=str(seed_err))
 
         # 3. Create Stripe Customer (Mock)
         logger.info("Creating Stripe customer", email=user.email, tenant_id=tenant.id)
