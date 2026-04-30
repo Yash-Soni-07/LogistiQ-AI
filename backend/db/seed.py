@@ -4,22 +4,30 @@ Async seed script for LogistiQ AI backend.
 
 import asyncio
 import random
-import structlog
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta
 
 import structlog
 import structlog.stdlib
-
-import sqlalchemy as sa
-from geoalchemy2 import Geometry
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from db.models import (
-    Carrier, DeclarativeBase, DisruptionEvent, DisruptionSeverity, DisruptionType,
-    AgentDecision, NewsAlert, PlanTier, RouteSegment, Shipment, ShipmentMode,
-    ShipmentStatus, SubscriptionEvent, Tenant, Telemetry, User, UserRole
+    Carrier,
+    DeclarativeBase,
+    DisruptionEvent,
+    DisruptionSeverity,
+    DisruptionType,
+    NewsAlert,
+    PlanTier,
+    RouteSegment,
+    Shipment,
+    ShipmentMode,
+    ShipmentStatus,
+    SubscriptionEvent,
+    Telemetry,
+    Tenant,
+    User,
+    UserRole,
 )
 
 # Configure structured logging
@@ -27,7 +35,7 @@ structlog.configure(
     processors=[
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     context_class=dict,
     logger_factory=structlog.stdlib.LoggerFactory(),
@@ -80,12 +88,31 @@ INDIAN_CITIES = [
 ]
 
 # Sectors for shipments
-SECTORS = ["automotive", "pharma", "cold_chain", "retail", "tech", "electronics", "textiles", "agriculture"]
+SECTORS = [
+    "automotive",
+    "pharma",
+    "cold_chain",
+    "retail",
+    "tech",
+    "electronics",
+    "textiles",
+    "agriculture",
+]
 
 # Indian carrier names
 CARRIER_NAMES = [
-    "Mahindra Logistics", "TCI Express", "Blue Dart", "CONCOR", "SCI",
-    "DHL India", "FedEx India", "Spoton", "Rivigo", "Porter", "Gati", "Allcargo"
+    "Mahindra Logistics",
+    "TCI Express",
+    "Blue Dart",
+    "CONCOR",
+    "SCI",
+    "DHL India",
+    "FedEx India",
+    "Spoton",
+    "Rivigo",
+    "Porter",
+    "Gati",
+    "Allcargo",
 ]
 
 # Disruption events data
@@ -95,18 +122,14 @@ DISRUPTION_SEVERITIES = [s.value for s in DisruptionSeverity]
 
 async def create_tenant(session: AsyncSession, name: str, tier: PlanTier) -> Tenant:
     """Create a tenant with default admin user."""
-    tenant = Tenant(
-        name=name,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
-    )
+    tenant = Tenant(name=name, created_at=datetime.utcnow(), updated_at=datetime.utcnow())
 
     # Create default admin user
     admin_user = User(
         email=f"admin@{name.lower().replace(' ', '').replace(',', '')}.com",
         full_name="Admin User",
         role=UserRole.ADMIN,
-        tenant_id=tenant.id
+        tenant_id=tenant.id,
     )
 
     session.add(tenant)
@@ -118,7 +141,7 @@ async def create_tenant(session: AsyncSession, name: str, tier: PlanTier) -> Ten
     return tenant
 
 
-async def create_carriers(session: AsyncSession, tenant_id: str) -> List[Carrier]:
+async def create_carriers(session: AsyncSession, tenant_id: str) -> list[Carrier]:
     """Create carriers for a tenant."""
     carriers = []
     for name in random.sample(CARRIER_NAMES, 5):
@@ -126,7 +149,7 @@ async def create_carriers(session: AsyncSession, tenant_id: str) -> List[Carrier
             name=name,
             tenant_id=tenant_id,
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
         carriers.append(carrier)
 
@@ -137,7 +160,9 @@ async def create_carriers(session: AsyncSession, tenant_id: str) -> List[Carrier
     return carriers
 
 
-async def create_shipments(session: AsyncSession, tenant_id: str, carriers: List[Carrier]) -> List[Shipment]:
+async def create_shipments(
+    session: AsyncSession, tenant_id: str, carriers: list[Carrier]
+) -> list[Shipment]:
     """Create shipments for a tenant."""
     shipments = []
 
@@ -145,7 +170,7 @@ async def create_shipments(session: AsyncSession, tenant_id: str, carriers: List
         origin_city, origin_lon, origin_lat = random.choice(INDIAN_CITIES)
         dest_city, dest_lon, dest_lat = random.choice(INDIAN_CITIES)
 
-        while (origin_city == dest_city):
+        while origin_city == dest_city:
             dest_city, dest_lon, dest_lat = random.choice(INDIAN_CITIES)
 
         shipment = Shipment(
@@ -159,10 +184,14 @@ async def create_shipments(session: AsyncSession, tenant_id: str, carriers: List
             weight_kg=round(random.uniform(100, 10000), 2) if random.random() > 0.3 else None,
             volume_m3=round(random.uniform(1, 100), 2) if random.random() > 0.3 else None,
             temperature_c=round(random.uniform(-20, 25), 1) if random.random() > 0.7 else None,
-            estimated_delivery=(datetime.utcnow() + timedelta(days=random.randint(1, 30))).date() if random.random() > 0.2 else None,
-            actual_delivery=(datetime.utcnow() + timedelta(days=random.randint(1, 30))).date() if random.random() > 0.8 else None,
+            estimated_delivery=(datetime.utcnow() + timedelta(days=random.randint(1, 30))).date()
+            if random.random() > 0.2
+            else None,
+            actual_delivery=(datetime.utcnow() + timedelta(days=random.randint(1, 30))).date()
+            if random.random() > 0.8
+            else None,
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
         shipments.append(shipment)
 
@@ -173,16 +202,18 @@ async def create_shipments(session: AsyncSession, tenant_id: str, carriers: List
     return shipments
 
 
-async def create_route_segments(session: AsyncSession, shipments: List[Shipment]) -> List[RouteSegment]:
+async def create_route_segments(
+    session: AsyncSession, shipments: list[Shipment]
+) -> list[RouteSegment]:
     """Create route segments for shipments."""
     route_segments = []
 
-    for shipment in shipments:
+    for _shipment in shipments:
         # Create 2-4 route segments per shipment
         num_segments = random.randint(2, 4)
         highway_keys = list(HIGHWAYS_WKT.keys())
 
-        for i in range(num_segments):
+        for _i in range(num_segments):
             highway = random.choice(highway_keys)
             wkt = HIGHWAYS_WKT[highway]
 
@@ -191,7 +222,7 @@ async def create_route_segments(session: AsyncSession, shipments: List[Shipment]
                 highway_code=highway,
                 geom=f"SRID=4326;{wkt}",
                 risk_score=round(random.uniform(0.1, 0.9), 2),
-                created_at=datetime.utcnow()
+                created_at=datetime.utcnow(),
             )
             route_segments.append(segment)
 
@@ -202,7 +233,7 @@ async def create_route_segments(session: AsyncSession, shipments: List[Shipment]
     return route_segments
 
 
-async def create_disruption_events(session: AsyncSession, tenant_id: str) -> List[DisruptionEvent]:
+async def create_disruption_events(session: AsyncSession, tenant_id: str) -> list[DisruptionEvent]:
     """Create disruption events."""
     disruption_events = []
 
@@ -230,7 +261,7 @@ async def create_disruption_events(session: AsyncSession, tenant_id: str) -> Lis
             description=f"{random.choice(DISRUPTION_TYPES).capitalize()} disruption near {city}",
             impact=f"Impacting shipments in {random.randint(10, 50)} km radius",
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
         disruption_events.append(event)
 
@@ -241,7 +272,7 @@ async def create_disruption_events(session: AsyncSession, tenant_id: str) -> Lis
     return disruption_events
 
 
-async def create_telemetry(session: AsyncSession, shipments: List[Shipment]) -> List[Telemetry]:
+async def create_telemetry(session: AsyncSession, shipments: list[Shipment]) -> list[Telemetry]:
     """Create telemetry data for shipments."""
     telemetry_data = []
 
@@ -258,14 +289,14 @@ async def create_telemetry(session: AsyncSession, shipments: List[Shipment]) -> 
                     "humidity": round(random.uniform(20, 80), 1),
                     "location": {
                         "lat": round(random.uniform(8, 35), 6),
-                        "lon": round(random.uniform(68, 97), 6)
+                        "lon": round(random.uniform(68, 97), 6),
                     },
                     "speed_kmh": round(random.uniform(0, 80), 1),
                     "door_open": random.choice([True, False]),
-                    "fuel_level": round(random.uniform(0, 100), 1)
+                    "fuel_level": round(random.uniform(0, 100), 1),
                 },
                 created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                updated_at=datetime.utcnow(),
             )
             telemetry_data.append(telemetry)
 
@@ -276,30 +307,30 @@ async def create_telemetry(session: AsyncSession, shipments: List[Shipment]) -> 
     return telemetry_data
 
 
-async def create_news_alerts(session: AsyncSession, tenant_id: str) -> List[NewsAlert]:
+async def create_news_alerts(session: AsyncSession, tenant_id: str) -> list[NewsAlert]:
     """Create news alerts."""
     news_alerts = [
         NewsAlert(
             title="Major Highway Closure Due to Landslide",
-            content="NH-48 closed between Mumbai and Bangalore due to landslide. Alternative routes recommended.",
+            content="NH-48 closed between Mumbai and Bangalore due to landslide. Alternative routes recommended.",  # noqa: E501
             category="traffic",
             priority=2,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         ),
         NewsAlert(
             title="New Trade Agreement Benefits Exporters",
-            content="New trade agreement with ASEAN countries reduces tariffs by 15% for eligible goods.",
+            content="New trade agreement with ASEAN countries reduces tariffs by 15% for eligible goods.",  # noqa: E501
             category="trade",
             priority=1,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         ),
         NewsAlert(
             title="Weather Alert: Heavy Rains Expected",
-            content="IMD predicts heavy rainfall in coastal regions for next 48 hours. Expect delays.",
+            content="IMD predicts heavy rainfall in coastal regions for next 48 hours. Expect delays.",  # noqa: E501
             category="weather",
             priority=3,
-            created_at=datetime.utcnow()
-        )
+            created_at=datetime.utcnow(),
+        ),
     ]
 
     session.add_all(news_alerts)
@@ -309,7 +340,9 @@ async def create_news_alerts(session: AsyncSession, tenant_id: str) -> List[News
     return news_alerts
 
 
-async def create_subscription_events(session: AsyncSession, tenant_id: str, users: List[User]) -> List[SubscriptionEvent]:
+async def create_subscription_events(
+    session: AsyncSession, tenant_id: str, users: list[User]
+) -> list[SubscriptionEvent]:
     """Create subscription events."""
     subscription_events = []
 
@@ -322,10 +355,12 @@ async def create_subscription_events(session: AsyncSession, tenant_id: str, user
             event_type=random.choice(event_types),
             details={
                 "message": f"Sample {random.choice(event_types)} event",
-                "timestamp": datetime.utcnow().isoformat()
-            } if random.random() > 0.5 else None,
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            if random.random() > 0.5
+            else None,
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
         subscription_events.append(event)
 
@@ -355,7 +390,7 @@ async def main():
         tenants = [
             ("Mahindra Logistics", PlanTier.PRO),
             ("TCI Express", PlanTier.STARTER),
-            ("Demo Corp", PlanTier.ENTERPRISE)
+            ("Demo Corp", PlanTier.ENTERPRISE),
         ]
 
         for name, tier in tenants:

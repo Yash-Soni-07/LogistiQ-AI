@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
-import json
-import pytest
 from unittest.mock import AsyncMock
 
+import pytest
+
 from ml.risk_scorer import (
+    _W_FIRE,
+    _W_FLOOD,
+    _W_QUAKE,
+    _W_STRIKE,
     RiskScore,
-    _W_FLOOD, _W_FIRE, _W_STRIKE, _W_QUAKE,
     _fire_proximity_score,
     _haversine_km,
     _quake_score,
     compute_risk,
 )
 
-
 # ── Constants ─────────────────────────────────────────────────
+
 
 def test_weights_sum_to_one():
     total = _W_FLOOD + _W_FIRE + _W_STRIKE + _W_QUAKE
@@ -24,6 +27,7 @@ def test_weights_sum_to_one():
 
 
 # ── Haversine ─────────────────────────────────────────────────
+
 
 def test_haversine_mumbai_chennai():
     d = _haversine_km(19.076, 72.877, 13.082, 80.270)
@@ -36,11 +40,9 @@ def test_haversine_same_point():
 
 # ── Fire proximity ────────────────────────────────────────────
 
+
 def _fire_feature(lat: float, lon: float, frp: float = 15.0) -> dict:
-    return {
-        "geometry": {"type": "Point", "coordinates": [lon, lat]},
-        "properties": {"frp": frp}
-    }
+    return {"geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": {"frp": frp}}
 
 
 def test_fire_proximity_within_5km():
@@ -73,6 +75,7 @@ def test_fire_proximity_malformed_feature():
 
 # ── Quake score ───────────────────────────────────────────────
 
+
 def test_quake_score_significant():
     quakes = [{"magnitude": 5.0, "depth_km": 10.0}]
     score = _quake_score(quakes)
@@ -100,6 +103,7 @@ def test_quake_score_empty():
 
 
 # ── compute_risk with mocked MCPs ────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_compute_risk_returns_risk_score(mock_mcp_clients, redis_mock):
@@ -142,12 +146,12 @@ async def test_compute_risk_reads_strike_from_redis(mock_mcp_clients, redis_mock
 async def test_compute_risk_high_flood_elevates_composite(redis_mock):
     """Weather MCP returning risk_score=0.9 should drive composite high."""
     high_flood = AsyncMock()
-    high_flood.call.return_value = {
-        "risk_score": 0.9, "rain_24h_mm": 80.0, "elevation_m": 2.0
-    }
+    high_flood.call.return_value = {"risk_score": 0.9, "rain_24h_mm": 80.0, "elevation_m": 2.0}
     low_sat = AsyncMock()
     low_sat.call.return_value = {"features": []}
 
-    score = await compute_risk(19.0, 72.0, "seg-flood", {"weather": high_flood, "satellite": low_sat})
+    score = await compute_risk(
+        19.0, 72.0, "seg-flood", {"weather": high_flood, "satellite": low_sat}
+    )
     # flood weight=0.40 → composite >= 0.36
     assert score.risk_score >= 0.36

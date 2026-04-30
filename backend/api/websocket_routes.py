@@ -19,20 +19,20 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+import google.generativeai as genai
 import structlog
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import google.generativeai as genai
 
 from core.auth import decode_token
 from core.config import settings
 from core.exceptions import UnauthorizedError
+from core.redis import redis_client
 from db.database import AsyncSessionLocal, get_db_session
 from db.models import Shipment, ShipmentStatus
-from core.redis import redis_client
 
 log = structlog.get_logger(__name__)
 
@@ -40,6 +40,7 @@ log = structlog.get_logger(__name__)
 # ─────────────────────────────────────────────────────────────
 # Connection Manager
 # ─────────────────────────────────────────────────────────────
+
 
 class ConnectionManager:
     """Thread-safe (asyncio) WebSocket connection registry."""
@@ -74,7 +75,7 @@ class ConnectionManager:
         payload = {
             "event": event_type,
             "data": data,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         }
         await self.broadcast(f"tenant:{tenant_id}", payload)
 
@@ -94,6 +95,7 @@ manager = ConnectionManager()
 # ─────────────────────────────────────────────────────────────
 # Auth helper
 # ─────────────────────────────────────────────────────────────
+
 
 async def _authenticate_ws(token: str) -> dict[str, str]:
     """Decode JWT from ?token= query param. Raises UnauthorizedError on failure."""
@@ -121,6 +123,7 @@ router = APIRouter(prefix="/ws", tags=["websocket"])
 # Redis PubSub Task Helper
 # ─────────────────────────────────────────────────────────────
 
+
 async def _redis_reader(pubsub, ws: WebSocket):
     """Reads from Redis pubsub and forwards to WebSocket."""
     try:
@@ -141,6 +144,7 @@ async def _redis_reader(pubsub, ws: WebSocket):
 # ─────────────────────────────────────────────────────────────
 # Endpoints
 # ─────────────────────────────────────────────────────────────
+
 
 @router.websocket("/shipments")
 async def ws_shipments_all(
@@ -168,7 +172,9 @@ async def ws_shipments_all(
 
         query = select(Shipment).where(
             Shipment.tenant_id == tenant_id,
-            Shipment.status.in_([ShipmentStatus.PENDING, ShipmentStatus.IN_TRANSIT, ShipmentStatus.DELAYED])
+            Shipment.status.in_(
+                [ShipmentStatus.PENDING, ShipmentStatus.IN_TRANSIT, ShipmentStatus.DELAYED]
+            ),
         )
         result = await db.execute(query)
         shipments = result.scalars().all()
@@ -181,19 +187,21 @@ async def ws_shipments_all(
         for s in shipments:
             current_lon = float(s.current_lon) if s.current_lon is not None else 78.9629
             current_lat = float(s.current_lat) if s.current_lat is not None else 20.5937
-            features.append({
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [current_lon, current_lat]},
-                "properties": {
-                    "shipment_id": s.id,
-                    "status": s.status.value if hasattr(s.status, 'value') else s.status,
-                    "origin": s.origin,
-                    "destination": s.destination,
-                    "mode": s.mode.value if hasattr(s.mode, 'value') else s.mode,
-                    "current_lon": current_lon,
-                    "current_lat": current_lat,
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [current_lon, current_lat]},
+                    "properties": {
+                        "shipment_id": s.id,
+                        "status": s.status.value if hasattr(s.status, "value") else s.status,
+                        "origin": s.origin,
+                        "destination": s.destination,
+                        "mode": s.mode.value if hasattr(s.mode, "value") else s.mode,
+                        "current_lon": current_lon,
+                        "current_lat": current_lat,
+                    },
                 }
-            })
+            )
         await ws.send_json({"type": "FeatureCollection", "features": features})
     except Exception as e:
         log.warning("ws.shipments.initial_state_failed", error=str(e))
@@ -208,9 +216,9 @@ async def ws_shipments_all(
             try:
                 msg = await asyncio.wait_for(ws.receive_text(), timeout=30.0)
                 if msg == "ping":
-                    await ws.send_json({"type": "pong", "ts": datetime.now(timezone.utc).isoformat()})
-            except asyncio.TimeoutError:
-                await ws.send_json({"type": "heartbeat", "ts": datetime.now(timezone.utc).isoformat()})
+                    await ws.send_json({"type": "pong", "ts": datetime.now(UTC).isoformat()})
+            except TimeoutError:
+                await ws.send_json({"type": "heartbeat", "ts": datetime.now(UTC).isoformat()})
     except WebSocketDisconnect:
         pass
     finally:
@@ -256,8 +264,8 @@ async def ws_agent_log(
             try:
                 msg = await asyncio.wait_for(ws.receive_text(), timeout=30.0)
                 if msg == "ping":
-                    await ws.send_json({"type": "pong", "ts": datetime.now(timezone.utc).isoformat()})
-            except asyncio.TimeoutError:
+                    await ws.send_json({"type": "pong", "ts": datetime.now(UTC).isoformat()})
+            except TimeoutError:
                 pass
     except WebSocketDisconnect:
         pass
@@ -301,8 +309,8 @@ async def ws_vrp_results(
             try:
                 msg = await asyncio.wait_for(ws.receive_text(), timeout=30.0)
                 if msg == "ping":
-                    await ws.send_json({"type": "pong", "ts": datetime.now(timezone.utc).isoformat()})
-            except asyncio.TimeoutError:
+                    await ws.send_json({"type": "pong", "ts": datetime.now(UTC).isoformat()})
+            except TimeoutError:
                 pass
     except WebSocketDisconnect:
         pass
@@ -329,12 +337,14 @@ async def ws_disruptions(
     await ws.accept()
     await manager.connect(ws, channel)
 
-    await ws.send_json({
-        "type": "connected",
-        "channel": "disruptions",
-        "tenant_id": tenant_id,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    })
+    await ws.send_json(
+        {
+            "type": "connected",
+            "channel": "disruptions",
+            "tenant_id": tenant_id,
+            "ts": datetime.now(UTC).isoformat(),
+        }
+    )
 
     pubsub = redis_client.pubsub()
     await pubsub.subscribe("disruptions")
@@ -360,9 +370,9 @@ async def ws_disruptions(
             try:
                 msg = await asyncio.wait_for(ws.receive_text(), timeout=30.0)
                 if msg == "ping":
-                    await ws.send_json({"type": "pong", "ts": datetime.now(timezone.utc).isoformat()})
-            except asyncio.TimeoutError:
-                await ws.send_json({"type": "heartbeat", "ts": datetime.now(timezone.utc).isoformat()})
+                    await ws.send_json({"type": "pong", "ts": datetime.now(UTC).isoformat()})
+            except TimeoutError:
+                await ws.send_json({"type": "heartbeat", "ts": datetime.now(UTC).isoformat()})
     except WebSocketDisconnect:
         pass
     finally:
@@ -379,7 +389,7 @@ async def ws_carrier_auction(
 ) -> None:
     """Carrier auction bid stream."""
     try:
-        ctx = await _authenticate_ws(token)
+        await _authenticate_ws(token)
     except UnauthorizedError:
         await ws.close(code=1008)
         return
@@ -424,40 +434,36 @@ async def ws_copilot(
 
     try:
         question = await ws.receive_text()
-        
+
         from agents.copilot_agent import _classify_intent
+
         intent = _classify_intent(question)
-        
+
         if intent != "general" or not getattr(settings, "GEMINI_API_KEY", None):
             # Non-general or fallback: run standard query
             from agents.copilot_agent import query
+
             async with AsyncSessionLocal() as db:
                 response = await query(question, ctx["tenant_id"], ctx["user_id"], db)
-            
+
             await ws.send_json({"type": "token", "content": response.answer})
-            await ws.send_json({
-                "type": "done",
-                "reasoning_steps": [],
-                "suggested_actions": response.tool_calls
-            })
+            await ws.send_json(
+                {"type": "done", "reasoning_steps": [], "suggested_actions": response.tool_calls}
+            )
         else:
             # Gemini streaming
             genai.configure(api_key=settings.GEMINI_API_KEY)
             model = genai.GenerativeModel(
                 model_name=getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash"),
-                system_instruction="You are LogistiQ AI Copilot — an expert assistant for Indian logistics operators. Answer concisely in plain English."
+                system_instruction="You are LogistiQ AI Copilot — an expert assistant for Indian logistics operators. Answer concisely in plain English.",  # noqa: E501
             )
             response_stream = model.generate_content(question, stream=True)
             for chunk in response_stream:
                 if chunk.text:
                     await ws.send_json({"type": "token", "content": chunk.text})
-            
-            await ws.send_json({
-                "type": "done",
-                "reasoning_steps": [],
-                "suggested_actions": []
-            })
-            
+
+            await ws.send_json({"type": "done", "reasoning_steps": [], "suggested_actions": []})
+
         while True:
             msg = await ws.receive_text()
             if msg == "ping":
@@ -469,7 +475,7 @@ async def ws_copilot(
         try:
             await ws.send_json({"type": "token", "content": "Error processing request."})
             await ws.send_json({"type": "done", "reasoning_steps": [], "suggested_actions": []})
-        except:
+        except Exception:  # noqa: BLE001,S110
             pass
     finally:
         await manager.disconnect(ws, channel)
@@ -478,6 +484,7 @@ async def ws_copilot(
 # ─────────────────────────────────────────────────────────────
 # Retained Existing Endpoints
 # ─────────────────────────────────────────────────────────────
+
 
 @router.websocket("/shipments/{shipment_id}")
 async def ws_shipment(
@@ -502,26 +509,32 @@ async def ws_shipment(
     await ws.accept()
     await manager.connect(ws, channel)
     try:
-        await ws.send_json({
-            "type": "init",
-            "channel": channel,
-            "shipment_id": shipment_id,
-            "tenant_id": ctx["tenant_id"],
-            "status": shipment.status.value if hasattr(shipment.status, "value") else shipment.status,
-            "origin": shipment.origin,
-            "destination": shipment.destination,
-            "ts": datetime.now(timezone.utc).isoformat(),
-        })
+        await ws.send_json(
+            {
+                "type": "init",
+                "channel": channel,
+                "shipment_id": shipment_id,
+                "tenant_id": ctx["tenant_id"],
+                "status": shipment.status.value
+                if hasattr(shipment.status, "value")
+                else shipment.status,
+                "origin": shipment.origin,
+                "destination": shipment.destination,
+                "ts": datetime.now(UTC).isoformat(),
+            }
+        )
         while True:
             try:
                 msg = await asyncio.wait_for(ws.receive_text(), timeout=30.0)
                 if msg == "ping":
-                    await ws.send_json({"type": "pong", "ts": datetime.now(timezone.utc).isoformat()})
-            except asyncio.TimeoutError:
-                await ws.send_json({
-                    "type": "heartbeat",
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                })
+                    await ws.send_json({"type": "pong", "ts": datetime.now(UTC).isoformat()})
+            except TimeoutError:
+                await ws.send_json(
+                    {
+                        "type": "heartbeat",
+                        "ts": datetime.now(UTC).isoformat(),
+                    }
+                )
     except WebSocketDisconnect:
         pass
     except Exception as exc:
@@ -546,23 +559,27 @@ async def ws_dashboard(
     await ws.accept()
     await manager.connect(ws, channel)
     try:
-        await ws.send_json({
-            "type": "tick",
-            "connections": manager.connection_count(),
-            "tenant_id": ctx["tenant_id"],
-            "ts": datetime.now(timezone.utc).isoformat(),
-        })
+        await ws.send_json(
+            {
+                "type": "tick",
+                "connections": manager.connection_count(),
+                "tenant_id": ctx["tenant_id"],
+                "ts": datetime.now(UTC).isoformat(),
+            }
+        )
         while True:
             try:
                 msg = await asyncio.wait_for(ws.receive_text(), timeout=30.0)
                 if msg == "ping":
-                    await ws.send_json({"type": "pong", "ts": datetime.now(timezone.utc).isoformat()})
-            except asyncio.TimeoutError:
-                await ws.send_json({
-                    "type": "tick",
-                    "connections": manager.connection_count(),
-                    "ts": datetime.now(timezone.utc).isoformat(),
-                })
+                    await ws.send_json({"type": "pong", "ts": datetime.now(UTC).isoformat()})
+            except TimeoutError:
+                await ws.send_json(
+                    {
+                        "type": "tick",
+                        "connections": manager.connection_count(),
+                        "ts": datetime.now(UTC).isoformat(),
+                    }
+                )
     except WebSocketDisconnect:
         pass
     except Exception as exc:

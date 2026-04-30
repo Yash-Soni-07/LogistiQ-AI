@@ -9,7 +9,7 @@ Changes from original:
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import sqlalchemy as sa
 from fastapi.requests import HTTPConnection
@@ -25,10 +25,10 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     future=True,
-    pool_pre_ping=True,       # drop dead connections before checkout
-    pool_size=10,             # base connection pool size
-    max_overflow=20,          # extra connections allowed under burst load
-    pool_timeout=30,          # seconds to wait for a connection before raising
+    pool_pre_ping=True,  # drop dead connections before checkout
+    pool_size=10,  # base connection pool size
+    max_overflow=20,  # extra connections allowed under burst load
+    pool_timeout=30,  # seconds to wait for a connection before raising
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -47,6 +47,7 @@ AsyncSessionLocal = async_sessionmaker(
 # ─────────────────────────────────────────────────────────────
 # FastAPI dependency
 # ─────────────────────────────────────────────────────────────
+
 
 async def get_db_session(connection: HTTPConnection) -> AsyncGenerator[AsyncSession, None]:
     """Provide an AsyncSession with tenant RLS context.

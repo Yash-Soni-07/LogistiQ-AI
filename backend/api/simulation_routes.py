@@ -17,8 +17,7 @@ import asyncio
 import json
 import math
 import uuid
-from dataclasses import field
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -40,7 +39,9 @@ router = APIRouter(prefix="/simulation", tags=["simulation"])
 
 
 DEMO_MODE_SEQUENCE: list[ShipmentMode] = [
-    ShipmentMode.ROAD, ShipmentMode.AIR, ShipmentMode.SEA,
+    ShipmentMode.ROAD,
+    ShipmentMode.AIR,
+    ShipmentMode.SEA,
 ]
 
 MODE_SPEEDS_KMH: dict[ShipmentMode, float] = {
@@ -87,13 +88,16 @@ INDIAN_CITY_COORDS: dict[str, tuple[float, float]] = {
 }
 
 _simulation_tasks: dict[str, asyncio.Task[None]] = {}
-_active_simulations: dict[str, list["SimulatedShipment"]] = {}
+_active_simulations: dict[str, list[SimulatedShipment]] = {}
 _simulation_lock = asyncio.Lock()
 
 
-async def _fetch_osrm_route(start_lon: float, start_lat: float, end_lon: float, end_lat: float) -> list[list[float]]:
+async def _fetch_osrm_route(
+    start_lon: float, start_lat: float, end_lon: float, end_lat: float
+) -> list[list[float]]:
     """Fetch real road geometry from OSRM. Returns list of [lon, lat] pairs."""
     import httpx
+
     coord_str = f"{start_lon},{start_lat};{end_lon},{end_lat}"
     try:
         async with httpx.AsyncClient() as client:
@@ -175,7 +179,9 @@ async def _seed_demo_shipments(
 ) -> None:
     """Create exactly the 3 demo shipments needed (1 per transport mode)."""
     for origin, destination, mode in city_mode_pairs:
-        tracking_num = f"DEMO-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8].upper()}"
+        tracking_num = (
+            f"DEMO-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8].upper()}"
+        )
         db.add(
             Shipment(
                 id=str(uuid.uuid4()),
@@ -227,8 +233,12 @@ class SimulatedShipment:
             lo = int(idx)
             hi = min(lo + 1, len(self.route_path) - 1)
             frac = idx - lo
-            self.current_lon = self.route_path[lo][0] + (self.route_path[hi][0] - self.route_path[lo][0]) * frac
-            self.current_lat = self.route_path[lo][1] + (self.route_path[hi][1] - self.route_path[lo][1]) * frac
+            self.current_lon = (
+                self.route_path[lo][0] + (self.route_path[hi][0] - self.route_path[lo][0]) * frac
+            )
+            self.current_lat = (
+                self.route_path[lo][1] + (self.route_path[hi][1] - self.route_path[lo][1]) * frac
+            )
         else:
             self.current_lon = self.start_lon + (self.end_lon - self.start_lon) * self.progress
             self.current_lat = self.start_lat + (self.end_lat - self.start_lat) * self.progress
@@ -272,12 +282,12 @@ async def _prepare_simulation_shipments(
             )
 
         # Seed exactly 1 shipment per transport mode with correct city pairs
-        _DEMO_SEED_PAIRS = [
+        demo_seed_pairs = [
             ("Mumbai", "Delhi", ShipmentMode.ROAD),
             ("Bangalore", "Kolkata", ShipmentMode.AIR),
             ("Chennai", "Mumbai", ShipmentMode.SEA),
         ]
-        missing = _DEMO_SEED_PAIRS[len(rows):3]
+        missing = demo_seed_pairs[len(rows) : 3]
         await _seed_demo_shipments(db=db, tenant_id=tenant_id, city_mode_pairs=missing)
         rows = (await db.execute(_recent_shipments_stmt(tenant_id))).scalars().all()
         seeded_count = len(missing)
@@ -347,9 +357,7 @@ async def _persist_positions(
         await _bind_tenant_rls(session, tenant_id)
         for point in simulated:
             status = (
-                ShipmentStatus.DELIVERED
-                if point.progress >= 1.0
-                else ShipmentStatus.IN_TRANSIT
+                ShipmentStatus.DELIVERED if point.progress >= 1.0 else ShipmentStatus.IN_TRANSIT
             )
             await session.execute(
                 sa.update(Shipment)
@@ -534,7 +542,10 @@ async def simulate_fire_disruption(
     road_ship = next((s for s in sims if s.mode == ShipmentMode.ROAD and s.progress < 1.0), None)
 
     if not road_ship:
-        return {"status": "error", "message": "No active road shipment found. Start simulation first."}
+        return {
+            "status": "error",
+            "message": "No active road shipment found. Start simulation first.",
+        }
 
     # ── 1. Pick fire point 25% ahead on route (visible but not too close to destination) ──
     if road_ship.route_path and len(road_ship.route_path) >= 4:
@@ -578,14 +589,16 @@ async def simulate_fire_disruption(
             if resp.status_code == 200:
                 data = resp.json()
                 for i, route in enumerate(data.get("routes", [])[:3]):
-                    alternate_routes.append({
-                        "route_id": f"{event_id}-alt-{i}",
-                        "distance_km": round(route.get("distance", 0) / 1000, 1),
-                        "duration_min": round(route.get("duration", 0) / 60, 0),
-                        "via_waypoints": [f"Route {i + 1} (OSRM)"],
-                        "cost_inr": round(route.get("distance", 0) / 1000 * 45, 0),
-                        "eta_hours": round(route.get("duration", 0) / 3600, 1),
-                    })
+                    alternate_routes.append(
+                        {
+                            "route_id": f"{event_id}-alt-{i}",
+                            "distance_km": round(route.get("distance", 0) / 1000, 1),
+                            "duration_min": round(route.get("duration", 0) / 60, 0),
+                            "via_waypoints": [f"Route {i + 1} (OSRM)"],
+                            "cost_inr": round(route.get("distance", 0) / 1000 * 45, 0),
+                            "eta_hours": round(route.get("duration", 0) / 3600, 1),
+                        }
+                    )
     except Exception as exc:  # noqa: BLE001
         log.warning("fire.osrm_alternatives_failed", error=str(exc))
 
@@ -627,14 +640,16 @@ async def simulate_fire_disruption(
     }
 
     # ── 3. Publish fire_event to shipments channel → map shows fire marker ──
-    fire_event_payload = json.dumps({
-        "type": "fire_event",
-        "fire_lon": fire_lon,
-        "fire_lat": fire_lat,
-        "shipment_id": road_ship.shipment_id,
-        "description": disruption_desc,
-        "event_id": event_id,
-    })
+    fire_event_payload = json.dumps(
+        {
+            "type": "fire_event",
+            "fire_lon": fire_lon,
+            "fire_lat": fire_lat,
+            "shipment_id": road_ship.shipment_id,
+            "description": disruption_desc,
+            "event_id": event_id,
+        }
+    )
     await redis_client.publish(f"shipments:{tenant_id}", fire_event_payload)
 
     # ── 4. Publish VRP results immediately to Route Optimizer ──
@@ -683,7 +698,7 @@ async def simulate_fire_disruption(
         "description": disruption_desc,
         "severity": "critical",
         "actions": ["alert_dispatched", "reroute_initiated", "gemini_analysis_queued"],
-        "message": f"🔥 Fire disruption on {road_ship.origin}→{road_ship.destination}. {len(alternate_routes)} alternate routes computed. Gemini agent analyzing...",
+        "message": f"🔥 Fire disruption on {road_ship.origin}→{road_ship.destination}. {len(alternate_routes)} alternate routes computed. Gemini agent analyzing...",  # noqa: E501
         "human_escalated": False,
         "fallback_used": False,
         "shipment_id": road_ship.shipment_id,
@@ -720,14 +735,14 @@ async def apply_reroute(
 
     tenant_id = str(user.tenant_id)
     sims = _active_simulations.get(tenant_id, [])
-    road_ship = next(
-        (s for s in sims if s.mode == ShipmentMode.ROAD and s.progress < 1.0), None
-    )
+    road_ship = next((s for s in sims if s.mode == ShipmentMode.ROAD and s.progress < 1.0), None)
     if not road_ship:
         return {"status": "error", "message": "No active road shipment found."}
 
     # Fetch all alternatives with full GeoJSON geometry
-    coord_str = f"{road_ship.start_lon},{road_ship.start_lat};{road_ship.end_lon},{road_ship.end_lat}"
+    coord_str = (
+        f"{road_ship.start_lon},{road_ship.start_lat};{road_ship.end_lon},{road_ship.end_lat}"
+    )
     new_path: list[list[float]] = []
     try:
         async with httpx.AsyncClient() as client:
@@ -748,7 +763,10 @@ async def apply_reroute(
 
     if len(new_path) < 2:
         # Fallback: use existing path (no-op gracefully)
-        new_path = road_ship.route_path or [[road_ship.start_lon, road_ship.start_lat], [road_ship.end_lon, road_ship.end_lat]]
+        new_path = road_ship.route_path or [
+            [road_ship.start_lon, road_ship.start_lat],
+            [road_ship.end_lon, road_ship.end_lat],
+        ]
 
     # Update the live SimulatedShipment in-memory — takes effect next tick
     road_ship.route_path = new_path
@@ -756,25 +774,35 @@ async def apply_reroute(
     channel = f"shipments:{tenant_id}"
 
     # 1. Clear the fire marker from the map
-    await redis_client.publish(channel, json.dumps({
-        "type": "fire_cleared",
-        "shipment_id": road_ship.shipment_id,
-    }))
+    await redis_client.publish(
+        channel,
+        json.dumps(
+            {
+                "type": "fire_cleared",
+                "shipment_id": road_ship.shipment_id,
+            }
+        ),
+    )
 
     # 2. Push updated tick so map immediately shows new route
-    await redis_client.publish(channel, json.dumps({
-        "type": "simulation_tick",
-        "shipments": [road_ship.payload()],
-        "ts": _utc_now(),
-    }))
+    await redis_client.publish(
+        channel,
+        json.dumps(
+            {
+                "type": "simulation_tick",
+                "shipments": [road_ship.payload()],
+                "ts": _utc_now(),
+            }
+        ),
+    )
 
     # 3. Log reroute decision to agent_log
     reroute_log = {
         "trace_id": f"reroute-{uuid.uuid4().hex[:6]}",
         "timestamp": _utc_now(),
-        "description": f"Reroute dispatched for {road_ship.origin}→{road_ship.destination} (alt route #{route_index + 1})",
+        "description": f"Reroute dispatched for {road_ship.origin}→{road_ship.destination} (alt route #{route_index + 1})",  # noqa: E501
         "severity": "info",
-        "message": f"✅ Dispatch confirmed. Road shipment now following alternate route #{route_index + 1} ({len(new_path)} waypoints).",
+        "message": f"✅ Dispatch confirmed. Road shipment now following alternate route #{route_index + 1} ({len(new_path)} waypoints).",  # noqa: E501
         "actions": ["reroute_applied", "fire_cleared"],
         "human_escalated": False,
         "fallback_used": False,

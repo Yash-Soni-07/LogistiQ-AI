@@ -16,7 +16,7 @@ GET /analytics/usage                 API usage stats for current month
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -50,10 +50,16 @@ async def summary(
     # Shipment counts
     count_q = select(
         func.count().label("total"),
-        func.sum(case((Shipment.status == ShipmentStatus.DELIVERED, 1), else_=0)).label("delivered"),
+        func.sum(case((Shipment.status == ShipmentStatus.DELIVERED, 1), else_=0)).label(
+            "delivered"
+        ),
         func.sum(case((Shipment.status == ShipmentStatus.DELAYED, 1), else_=0)).label("delayed"),
-        func.sum(case((Shipment.status == ShipmentStatus.IN_TRANSIT, 1), else_=0)).label("in_transit"),
-        func.sum(case((Shipment.status == ShipmentStatus.CANCELLED, 1), else_=0)).label("cancelled"),
+        func.sum(case((Shipment.status == ShipmentStatus.IN_TRANSIT, 1), else_=0)).label(
+            "in_transit"
+        ),
+        func.sum(case((Shipment.status == ShipmentStatus.CANCELLED, 1), else_=0)).label(
+            "cancelled"
+        ),
     ).where(Shipment.tenant_id == tid)
     row = (await db.execute(count_q)).one()
 
@@ -119,7 +125,10 @@ async def shipments_by_mode(
         .order_by(func.count().desc())
     )
     rows = (await db.execute(q)).all()
-    return [{"mode": r.mode.value if hasattr(r.mode, "value") else r.mode, "count": r.count} for r in rows]
+    return [
+        {"mode": r.mode.value if hasattr(r.mode, "value") else r.mode, "count": r.count}
+        for r in rows
+    ]
 
 
 @router.get("/disruptions/trend")
@@ -129,7 +138,7 @@ async def disruption_trend(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     """Daily disruption event count for the last N days, grouped by type."""
-    since = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    since = datetime.now(tz=UTC) - timedelta(days=days)
 
     # func.date() truncates timestamps to YYYY-MM-DD and is supported by both
     # SQLite (tests) and PostgreSQL (production) without any raw SQL or dialect
@@ -148,10 +157,7 @@ async def disruption_trend(
         .order_by(day_expr)
     )
     rows = (await db.execute(q)).all()
-    return [
-        {"day": str(r.day), "type": r.type, "count": r.count}
-        for r in rows
-    ]
+    return [{"day": str(r.day), "type": r.type, "count": r.count} for r in rows]
 
 
 @router.get("/risk/heatmap")
@@ -166,7 +172,7 @@ async def risk_heatmap(
     Returns sorted by composite risk_score descending.
     """
     # Scan for all risk keys for this process (not tenant-specific — geo data is shared)
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     pattern = f"risk:*:*:{today}"
 
     results: list[dict[str, Any]] = []
@@ -176,13 +182,14 @@ async def risk_heatmap(
             cursor, keys = await redis_client.scan(cursor, match=pattern, count=200)
             for key in keys:
                 import json
+
                 raw = await redis_client.get(key)
                 if raw:
                     try:
                         data = json.loads(raw)
                         results.append(data)
-                    except Exception:
-                        pass
+                    except Exception:  # noqa: BLE001
+                        log.debug("analytics.risk_heatmap.bad_key", key=key)
             if cursor == 0:
                 break
 
@@ -199,11 +206,11 @@ async def usage_stats(
 ) -> dict[str, Any]:
     """Current-month API usage counters from Redis usage tracker."""
     monthly = await get_monthly_usage(str(user.tenant_id))
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     daily = await get_daily_breakdown(str(user.tenant_id), today)
     return {
         "tenant_id": str(user.tenant_id),
-        "month": datetime.now(tz=timezone.utc).strftime("%Y-%m"),
+        "month": datetime.now(tz=UTC).strftime("%Y-%m"),
         "monthly_totals": monthly,
         "today": daily,
     }

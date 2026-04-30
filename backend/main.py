@@ -12,9 +12,9 @@ Responsibilities:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import AsyncGenerator
+from datetime import UTC, datetime
 
 import structlog
 from fastapi import FastAPI, Request, status
@@ -28,7 +28,7 @@ from core.config import settings
 from core.exceptions import LogistiQError
 from core.logging import configure_logging
 from core.middleware import TenantMiddleware
-from db.database import AsyncSessionLocal, engine
+from db.database import engine
 
 log = structlog.get_logger(__name__)
 
@@ -36,6 +36,7 @@ log = structlog.get_logger(__name__)
 # ─────────────────────────────────────────────────────────────
 # Lifespan
 # ─────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -56,17 +57,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         try:
             from core.redis import redis_client
+
             await redis_client.ping()
             log.info("redis.connected")
         except Exception as exc:  # noqa: BLE001
             log.error("redis.connection_failed", error=str(exc))
-
 
     # Start Sentinel Agent scheduler (disabled in test/CI environments and Phase 1).
     sentinel = None
     if not settings.TESTING and settings.PHASE_2_ENABLED:
         try:
             from agents.sentinel_agent import SentinelAgent
+
             sentinel = SentinelAgent()
             await sentinel.start()
         except Exception as exc:  # noqa: BLE001
@@ -74,7 +76,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         try:
             import asyncio
+
             from agents.decision_agent import DecisionAgent
+
             decision_agent = DecisionAgent()
             task = asyncio.create_task(decision_agent.subscribe_disruptions())
             app.state.decision_agent_task = task
@@ -90,8 +94,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         try:
             await sentinel.stop()
         except Exception:  # noqa: BLE001
-            pass
-    
+            log.debug("sentinel.stop_suppressed")
+
     if getattr(app.state, "decision_agent_task", None):
         app.state.decision_agent_task.cancel()
         log.info("decision_agent.subscriber.stopped")
@@ -101,17 +105,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await engine.dispose()
             log.info("db.disposed")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("db.dispose_suppressed")
 
         try:
             from core.redis import redis_client
+
             await redis_client.aclose()
             log.info("redis.closed")
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("redis.close_suppressed")
 
     log.info("logistiq.shutdown")
-
 
 
 # ─────────────────────────────────────────────────────────────
@@ -138,7 +142,7 @@ app = FastAPI(
 app.add_middleware(TenantMiddleware)
 
 # 2. Add CORSMiddleware LAST (Outermost layer)
-# This ensures it wraps EVERYTHING, including TenantMiddleware and any 
+# This ensures it wraps EVERYTHING, including TenantMiddleware and any
 # global exception handlers, so headers are ALWAYS sent back.
 app.add_middleware(
     CORSMiddleware,
@@ -164,6 +168,7 @@ Instrumentator(
 # ─────────────────────────────────────────────────────────────
 # Global exception handlers
 # ─────────────────────────────────────────────────────────────
+
 
 @app.exception_handler(LogistiQError)
 async def logistiq_error_handler(request: Request, exc: LogistiQError) -> JSONResponse:
@@ -225,13 +230,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # API Routers
 # ─────────────────────────────────────────────────────────────
 
-from api.auth_routes import router as auth_router
-from api.shipment_routes import router as shipment_router, carrier_router
-from api.disruption_routes import router as disruption_router
-from api.analytics_routes import router as analytics_router
-from api.billing_routes import router as billing_router
-from api.simulation_routes import router as simulation_router
-from api.websocket_routes import router as ws_router
+from api.analytics_routes import router as analytics_router  # noqa: E402
+from api.auth_routes import router as auth_router  # noqa: E402
+from api.billing_routes import router as billing_router  # noqa: E402
+from api.disruption_routes import router as disruption_router  # noqa: E402
+from api.shipment_routes import carrier_router  # noqa: E402
+from api.shipment_routes import router as shipment_router  # noqa: E402
+from api.simulation_routes import router as simulation_router  # noqa: E402
+from api.websocket_routes import router as ws_router  # noqa: E402
 
 app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
 app.include_router(shipment_router, prefix="/api/v1", tags=["shipments"])
@@ -247,11 +253,11 @@ app.include_router(ws_router, tags=["websocket"])
 # MCP Routers  (each MCPServer exposes .router with its prefix baked in)
 # ─────────────────────────────────────────────────────────────
 
-from mcp_servers.mcp_weather import weather_mcp
-from mcp_servers.mcp_satellite import satellite_mcp
-from mcp_servers.mcp_routing import routing_mcp
-from mcp_servers.mcp_shipment import shipment_mcp
-from mcp_servers.mcp_notify import notify_mcp
+from mcp_servers.mcp_notify import notify_mcp  # noqa: E402
+from mcp_servers.mcp_routing import routing_mcp  # noqa: E402
+from mcp_servers.mcp_satellite import satellite_mcp  # noqa: E402
+from mcp_servers.mcp_shipment import shipment_mcp  # noqa: E402
+from mcp_servers.mcp_weather import weather_mcp  # noqa: E402
 
 app.include_router(weather_mcp.router, tags=["mcp"])
 app.include_router(satellite_mcp.router, tags=["mcp"])
@@ -263,6 +269,7 @@ app.include_router(notify_mcp.router, tags=["mcp"])
 # ─────────────────────────────────────────────────────────────
 # Health endpoint — matched by Docker HEALTHCHECK
 # ─────────────────────────────────────────────────────────────
+
 
 @app.get("/health", include_in_schema=False)
 async def health_check() -> dict:
@@ -281,6 +288,7 @@ async def health_check() -> dict:
 
     try:
         from core.redis import redis_client
+
         await redis_client.ping()
         redis_status = "connected"
     except Exception:  # noqa: BLE001
@@ -289,9 +297,9 @@ async def health_check() -> dict:
     return {
         "status": "ok",
         "env": settings.ENVIRONMENT,
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "db": db_status,
         "redis": redis_status,
         "sentinel": "running" if getattr(app.state, "sentinel", None) else "stopped",
-        "phase_2_enabled": getattr(settings, "PHASE_2_ENABLED", False)
+        "phase_2_enabled": getattr(settings, "PHASE_2_ENABLED", False),
     }

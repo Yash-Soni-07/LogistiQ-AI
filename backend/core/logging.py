@@ -37,7 +37,6 @@ from structlog.types import EventDict, WrappedLogger
 
 from core.config import settings
 
-
 # ─────────────────────────────────────────────────────────────
 # Context variables — propagated through async task chains
 # ─────────────────────────────────────────────────────────────
@@ -147,8 +146,8 @@ def configure_logging() -> None:
 
     # ── Shared processors (run for every log record) ──────────
     shared_processors: list[Any] = [
-        structlog.contextvars.merge_contextvars,   # structlog's own context var support
-        _inject_context_vars,                       # our request-scoped context vars
+        structlog.contextvars.merge_contextvars,  # structlog's own context var support
+        _inject_context_vars,  # our request-scoped context vars
         _add_service_metadata,
         _drop_color_message,
         structlog.stdlib.add_logger_name,
@@ -191,20 +190,20 @@ def configure_logging() -> None:
 
     root_logger = logging.getLogger()
     # Avoid duplicate handlers if called more than once
-    root_logger.handlers = [h for h in root_logger.handlers if not isinstance(h, logging.StreamHandler)]
+    root_logger.handlers = [
+        h for h in root_logger.handlers if not isinstance(h, logging.StreamHandler)
+    ]
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.DEBUG if not is_production else logging.INFO)
 
     # ── Silence noisy third-party loggers ────────────────────
     for noisy in (
-        "uvicorn.access",         # access logs handled separately
-        "sqlalchemy.engine",      # set to WARNING; change to INFO to see SQL
+        "uvicorn.access",  # access logs handled separately
+        "sqlalchemy.engine",  # set to WARNING; change to INFO to see SQL
         "httpx",
         "httpcore",
     ):
-        logging.getLogger(noisy).setLevel(
-            logging.WARNING if not is_production else logging.ERROR
-        )
+        logging.getLogger(noisy).setLevel(logging.WARNING if not is_production else logging.ERROR)
 
     # Allow SQLAlchemy pool events at WARNING
     logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)

@@ -56,7 +56,21 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-select = ["E","F","I","UP","N","S","B","A","C4","T20"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "N", "S", "B", "A", "C4", "T20"]
+ignore = [
+    "B008",   # FastAPI Depends() in default args — intentional pattern
+    "S311",   # random module — used for simulation/seeding only, not cryptography
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S311", "S608", "S105", "S106", "T201", "E501"]
+"db/migrations/*" = ["E501", "I001", "F401", "S608"]
+"_fix_models.py" = ["T201", "E401", "I001", "F401"]
+"db/seed.py" = ["T201", "S101"]
+"init_db.py" = ["T201"]
+"scripts/*" = ["T201", "E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -26,7 +26,6 @@ from billing.razorpay_client import (
     create_subscription,
     verify_webhook_signature,
 )
-from billing.usage_tracker import record_event
 from core.auth import get_current_user, require_role
 from core.exceptions import ExternalServiceError, ValidationError
 from core.schemas import BillingStatusRead, ChangePlanRequest, SubscribeRequest
@@ -41,10 +40,9 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 # Tenant helper
 # ─────────────────────────────────────────────────────────────
 
+
 async def _get_tenant(user: User, db: AsyncSession) -> Tenant:
-    return (
-        await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))
-    ).scalar_one()
+    return (await db.execute(select(Tenant).where(Tenant.id == user.tenant_id))).scalar_one()
 
 
 async def _latest_event(user: User, db: AsyncSession) -> SubscriptionEvent | None:
@@ -62,6 +60,7 @@ async def _latest_event(user: User, db: AsyncSession) -> SubscriptionEvent | Non
 # Routes
 # ─────────────────────────────────────────────────────────────
 
+
 @router.get("/status", response_model=BillingStatusRead)
 async def billing_status(
     user: User = Depends(get_current_user),
@@ -70,7 +69,12 @@ async def billing_status(
     """Return the tenant's current subscription info."""
     latest = await _latest_event(user, db)
     if not latest:
-        return {"plan_tier": "starter", "status": "trialing", "razorpay_customer_id": None, "details": {}}
+        return {
+            "plan_tier": "starter",
+            "status": "trialing",
+            "razorpay_customer_id": None,
+            "details": {},
+        }
 
     details = latest.details or {}
     return {
@@ -137,12 +141,14 @@ async def cancel(
 
     result = await cancel_subscription(subscription_id=sub_id, at_period_end=True)
 
-    db.add(SubscriptionEvent(
-        tenant_id=str(user.tenant_id),
-        user_id=str(user.id),
-        event_type="cancelled",
-        details={"subscription_id": sub_id, "cancel_at_cycle_end": True},
-    ))
+    db.add(
+        SubscriptionEvent(
+            tenant_id=str(user.tenant_id),
+            user_id=str(user.id),
+            event_type="cancelled",
+            details={"subscription_id": sub_id, "cancel_at_cycle_end": True},
+        )
+    )
     await db.commit()
 
     log.info("billing.cancelled", tenant_id=str(user.tenant_id), sub_id=sub_id)
@@ -163,12 +169,14 @@ async def change_plan_route(
 
     result = await change_plan(subscription_id=sub_id, new_tier=body.plan_tier)
 
-    db.add(SubscriptionEvent(
-        tenant_id=str(user.tenant_id),
-        user_id=str(user.id),
-        event_type="plan_changed",
-        details={"subscription_id": sub_id, "new_tier": body.plan_tier},
-    ))
+    db.add(
+        SubscriptionEvent(
+            tenant_id=str(user.tenant_id),
+            user_id=str(user.id),
+            event_type="plan_changed",
+            details={"subscription_id": sub_id, "new_tier": body.plan_tier},
+        )
+    )
     await db.commit()
 
     log.info("billing.plan_changed", tenant_id=str(user.tenant_id), new_tier=body.plan_tier)
@@ -178,6 +186,7 @@ async def change_plan_route(
 # ─────────────────────────────────────────────────────────────
 # Razorpay webhook — no auth, payload verified by HMAC-SHA256
 # ─────────────────────────────────────────────────────────────
+
 
 @router.post("/webhook", include_in_schema=False)
 async def razorpay_webhook(
@@ -207,7 +216,9 @@ async def razorpay_webhook(
     payload_data: dict = event.get("payload", {})
     sub_obj: dict = payload_data.get("subscription", {}).get("entity", {})
     payment_obj: dict = payload_data.get("payment", {}).get("entity", {})
-    tenant_id: str | None = (sub_obj.get("notes") or payment_obj.get("notes") or {}).get("tenant_id")
+    tenant_id: str | None = (sub_obj.get("notes") or payment_obj.get("notes") or {}).get(
+        "tenant_id"
+    )
 
     log.info("razorpay.webhook.received", event_type=event_type, tenant_id=tenant_id)
 
@@ -220,18 +231,20 @@ async def razorpay_webhook(
     }
 
     if event_type in handled and tenant_id:
-        db.add(SubscriptionEvent(
-            tenant_id=tenant_id,
-            user_id="00000000-0000-0000-0000-000000000000",  # system actor
-            event_type=event_type.replace(".", "_"),
-            details={
-                "razorpay_event_id": event.get("id"),
-                "subscription_id": sub_obj.get("id"),
-                "payment_id": payment_obj.get("id"),
-                "status": sub_obj.get("status") or payment_obj.get("status"),
-                "tier": (sub_obj.get("notes") or {}).get("tier"),
-            },
-        ))
+        db.add(
+            SubscriptionEvent(
+                tenant_id=tenant_id,
+                user_id="00000000-0000-0000-0000-000000000000",  # system actor
+                event_type=event_type.replace(".", "_"),
+                details={
+                    "razorpay_event_id": event.get("id"),
+                    "subscription_id": sub_obj.get("id"),
+                    "payment_id": payment_obj.get("id"),
+                    "status": sub_obj.get("status") or payment_obj.get("status"),
+                    "tier": (sub_obj.get("notes") or {}).get("tier"),
+                },
+            )
+        )
         try:
             await db.commit()
         except Exception as exc:  # noqa: BLE001

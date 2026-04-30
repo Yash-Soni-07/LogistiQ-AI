@@ -8,31 +8,58 @@ from httpx import AsyncClient
 
 async def _setup(client: AsyncClient, email: str) -> tuple[str, dict]:
     """Register, create 3 shipments (2 pending, 1 in_transit), return (token, headers)."""
-    reg = await client.post("/auth/register", json={
-        "email": email, "password": "Pass123!",
-        "company_name": "Corp", "first_name": "A", "last_name": "B",
-    })
+    reg = await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "Pass123!",
+            "company_name": "Corp",
+            "first_name": "A",
+            "last_name": "B",
+        },
+    )
     token = reg.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
     for i in range(3):
-        await client.post("/shipments", headers=headers, json={
-            "origin": f"City{i}", "destination": "Delhi",
-            "sector": "fmcg", "mode": "road",
-        })
+        await client.post(
+            "/shipments",
+            headers=headers,
+            json={
+                "origin": f"City{i}",
+                "destination": "Delhi",
+                "sector": "fmcg",
+                "mode": "road",
+            },
+        )
     return token, headers
 
 
 @pytest.mark.asyncio
 async def test_summary_has_correct_keys(app_client: AsyncClient, redis_mock):
-    token = (await app_client.post("/auth/register", json={
-        "email": "summary@test.com", "password": "Pass123!",
-        "company_name": "Corp", "first_name": "S", "last_name": "U",
-    })).json()["access_token"]
+    token = (
+        await app_client.post(
+            "/auth/register",
+            json={
+                "email": "summary@test.com",
+                "password": "Pass123!",
+                "company_name": "Corp",
+                "first_name": "S",
+                "last_name": "U",
+            },
+        )
+    ).json()["access_token"]
     resp = await app_client.get("/analytics/summary", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     data = resp.json()
-    for key in ("total_shipments", "delivered", "in_transit", "delayed", "on_time_rate_pct", "active_disruptions"):
+    for key in (
+        "total_shipments",
+        "delivered",
+        "in_transit",
+        "delayed",
+        "on_time_rate_pct",
+        "active_disruptions",
+    ):
         assert key in data, f"Missing key: {key}"
 
 
@@ -64,10 +91,16 @@ async def test_by_mode_returns_list(app_client: AsyncClient, redis_mock):
 
 @pytest.mark.asyncio
 async def test_usage_stats_endpoint(app_client: AsyncClient, redis_mock):
-    reg = await app_client.post("/auth/register", json={
-        "email": "usage@test.com", "password": "Pass123!",
-        "company_name": "Corp", "first_name": "U", "last_name": "S",
-    })
+    reg = await app_client.post(
+        "/auth/register",
+        json={
+            "email": "usage@test.com",
+            "password": "Pass123!",
+            "company_name": "Corp",
+            "first_name": "U",
+            "last_name": "S",
+        },
+    )
     token = reg.json()["access_token"]
     resp = await app_client.get("/analytics/usage", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
@@ -79,24 +112,39 @@ async def test_usage_stats_endpoint(app_client: AsyncClient, redis_mock):
 
 @pytest.mark.asyncio
 async def test_risk_heatmap_returns_list(app_client: AsyncClient, redis_mock):
-    reg = await app_client.post("/auth/register", json={
-        "email": "heatmap@test.com", "password": "Pass123!",
-        "company_name": "Corp", "first_name": "H", "last_name": "M",
-    })
+    reg = await app_client.post(
+        "/auth/register",
+        json={
+            "email": "heatmap@test.com",
+            "password": "Pass123!",
+            "company_name": "Corp",
+            "first_name": "H",
+            "last_name": "M",
+        },
+    )
     token = reg.json()["access_token"]
-    resp = await app_client.get("/analytics/risk/heatmap", headers={"Authorization": f"Bearer {token}"})
+    resp = await app_client.get(
+        "/analytics/risk/heatmap", headers={"Authorization": f"Bearer {token}"}
+    )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)
 
 
 @pytest.mark.asyncio
 async def test_disruption_trend_returns_list(app_client: AsyncClient, redis_mock):
-    reg = await app_client.post("/auth/register", json={
-        "email": "trend@test.com", "password": "Pass123!",
-        "company_name": "Corp", "first_name": "T", "last_name": "R",
-    })
+    reg = await app_client.post(
+        "/auth/register",
+        json={
+            "email": "trend@test.com",
+            "password": "Pass123!",
+            "company_name": "Corp",
+            "first_name": "T",
+            "last_name": "R",
+        },
+    )
     token = reg.json()["access_token"]
-    resp = await app_client.get("/analytics/disruptions/trend?days=7",
-                                headers={"Authorization": f"Bearer {token}"})
+    resp = await app_client.get(
+        "/analytics/disruptions/trend?days=7", headers={"Authorization": f"Bearer {token}"}
+    )
     assert resp.status_code == 200
     assert isinstance(resp.json(), list)

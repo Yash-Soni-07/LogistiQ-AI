@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
 
     # ── Security ──────────────────────────────────────────────
-    SECRET_KEY: str = "your_secret_key"
+    SECRET_KEY: str = "your_secret_key"  # noqa: S105
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -57,7 +57,6 @@ class Settings(BaseSettings):
     RAZORPAY_PRO_PLAN_ID: str | None = None
     RAZORPAY_ENTERPRISE_PLAN_ID: str | None = None
 
-
     # ── External data sources ─────────────────────────────────
     NASA_FIRMS_KEY: str | None = None
     ORS_API_KEY: str | None = None
@@ -68,11 +67,11 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-1.5-flash"
 
     # ── Agent configuration ───────────────────────────────────
-    PHASE_2_ENABLED: bool = False             # Feature flag to isolate Phase 2 autonomous agents
-    RISK_THRESHOLD_DELAY: float = 0.70        # mark DELAYED above this risk score
-    RISK_THRESHOLD_CRITICAL: float = 0.85     # trigger emergency reroute above this
-    SENTINEL_POLL_INTERVAL_MINUTES: int = 5   # how often sentinel polls shipments
-    GDELT_POLL_INTERVAL_MINUTES: int = 10     # how often GDELT news scan runs
+    PHASE_2_ENABLED: bool = False  # Feature flag to isolate Phase 2 autonomous agents
+    RISK_THRESHOLD_DELAY: float = 0.70  # mark DELAYED above this risk score
+    RISK_THRESHOLD_CRITICAL: float = 0.85  # trigger emergency reroute above this
+    SENTINEL_POLL_INTERVAL_MINUTES: int = 5  # how often sentinel polls shipments
+    GDELT_POLL_INTERVAL_MINUTES: int = 10  # how often GDELT news scan runs
     SIMULATION_DEMO_SPEED_MULTIPLIER: float = 100.0
     SIMULATION_DEMO_TICK_SECONDS: float = 1.0
 
@@ -92,7 +91,7 @@ class Settings(BaseSettings):
 
     def model_post_init(self, __context: object) -> None:
         """Warn loudly if obviously insecure defaults are used in production."""
-        if self.is_production and self.SECRET_KEY == "your_secret_key":
+        if self.is_production and self.SECRET_KEY == "your_secret_key":  # noqa: S105
             warnings.warn(
                 "SECRET_KEY is the default insecure value in a production environment! "
                 "Set a strong random SECRET_KEY in your .env file.",

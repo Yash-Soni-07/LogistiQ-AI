@@ -51,7 +51,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             try:
                 payload = decode_token(token)
                 tenant_id = payload.tenant_id
-            except Exception:
+            except Exception:  # noqa: BLE001,S110
                 # Invalid token — the auth dependency will raise 401 later.
                 # We never crash the middleware on a bad token.
                 pass

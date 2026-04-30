@@ -1,9 +1,10 @@
 import asyncio
 import uuid
-from sqlalchemy import select, insert, text
+
+from sqlalchemy import select, text
+
 from db.database import AsyncSessionLocal
-from db.models import Tenant, RouteSegment, Shipment, ShipmentStatus, ShipmentMode
-from core.config import settings
+from db.models import RouteSegment, Shipment, Tenant
 
 ROUTE_SEGMENTS = [
     {
@@ -43,6 +44,7 @@ ROUTE_SEGMENTS = [
     },
 ]
 
+
 async def seed():
     async with AsyncSessionLocal() as db:
         # Seed Tenant
@@ -57,12 +59,16 @@ async def seed():
         else:
             tenant_id = tenant.id
             print("* Tenant already seeded")
-            
+
         # Seed Route Segments
-        res = await db.execute(select(RouteSegment).where(RouteSegment.highway_code.in_([s["highway_code"] for s in ROUTE_SEGMENTS])))
+        res = await db.execute(
+            select(RouteSegment).where(
+                RouteSegment.highway_code.in_([s["highway_code"] for s in ROUTE_SEGMENTS])
+            )
+        )
         existing_segs = res.scalars().all()
         existing_codes = {s.highway_code for s in existing_segs}
-        
+
         inserted_segs = 0
         seg_ids = []
         for s in ROUTE_SEGMENTS:
@@ -73,20 +79,29 @@ async def seed():
                     INSERT INTO route_segments (id, tenant_id, highway_code, risk_score, elevation_avg_m, geom)
                     VALUES (:id, :t_id, :code, :rs, :elev, ST_GeomFromText(:wkt, 4326))
                 """)
-                await db.execute(stmt, {
-                    "id": sid, "t_id": tenant_id, "code": s["highway_code"], 
-                    "rs": s["risk_score"], "elev": s["elevation_avg_m"], "wkt": s["geom"]
-                })
+                await db.execute(
+                    stmt,
+                    {
+                        "id": sid,
+                        "t_id": tenant_id,
+                        "code": s["highway_code"],
+                        "rs": s["risk_score"],
+                        "elev": s["elevation_avg_m"],
+                        "wkt": s["geom"],
+                    },
+                )
                 inserted_segs += 1
             else:
-                seg_ids.append([x.id for x in existing_segs if x.highway_code == s["highway_code"]][0])
-                
+                seg_ids.append(
+                    [x.id for x in existing_segs if x.highway_code == s["highway_code"]][0]
+                )
+
         if inserted_segs > 0:
             await db.commit()
             print(f"* Inserted {inserted_segs} RouteSegments")
         else:
             print("* RouteSegments already seeded")
-            
+
         # Seed Shipments
         res = await db.execute(select(Shipment).where(Shipment.tenant_id == tenant_id))
         existing_ships = res.scalars().all()
@@ -98,13 +113,21 @@ async def seed():
                     INSERT INTO shipments (id, tenant_id, route_id, status, mode, sector, origin, destination, tracking_num, current_lat, current_lon, risk_score, co2_kg)
                     VALUES (:id, :t_id, :r_id, 'in_transit', 'road', :sec, 'Origin', 'Dest', :trk, 0.0, 0.0, 0.0, 0.0)
                 """)
-                await db.execute(stmt, {
-                    "id": sid, "t_id": tenant_id, "r_id": seg_ids[i], "sec": sectors[i], "trk": f"TRK-DEMO-{i}"
-                })
+                await db.execute(
+                    stmt,
+                    {
+                        "id": sid,
+                        "t_id": tenant_id,
+                        "r_id": seg_ids[i],
+                        "sec": sectors[i],
+                        "trk": f"TRK-DEMO-{i}",
+                    },
+                )
             await db.commit()
             print("* Inserted 3 Shipments")
         else:
             print("* Shipments already seeded")
+
 
 if __name__ == "__main__":
     asyncio.run(seed())

@@ -16,16 +16,14 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 from typing import Any
 
 import httpx
 import pybreaker
 import structlog
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from core.config import settings
-from core.redis import redis_client
 from mcp_servers.base import MCPServer, MCPToolSchema
 
 log = structlog.get_logger(__name__)
@@ -160,17 +158,17 @@ class SatelliteMCPServer(MCPServer):
         ),
     }
 
-    async def execute_tool(
-        self, name: str, params: dict[str, Any], tenant_id: str | None
-    ) -> Any:
+    async def execute_tool(self, name: str, params: dict[str, Any], tenant_id: str | None) -> Any:
         try:
             match name:
                 case "get_active_fires":
-                    return (await self._get_active_fires(
-                        params["bbox"],
-                        params.get("day_range", 5),
-                        params.get("date"),
-                    )).model_dump()
+                    return (
+                        await self._get_active_fires(
+                            params["bbox"],
+                            params.get("day_range", 5),
+                            params.get("date"),
+                        )
+                    ).model_dump()
                 case "get_earthquake_alerts":
                     alerts = await self._get_earthquake_alerts(
                         params["lat"], params["lon"], params.get("radius_km", 50)
@@ -190,7 +188,9 @@ class SatelliteMCPServer(MCPServer):
             elif name == "get_earthquake_alerts":
                 return []
             elif name == "get_elevation":
-                return ElevationResult(lat=params.get("lat", 0.0), lon=params.get("lon", 0.0), elevation_m=0.0).model_dump()
+                return ElevationResult(
+                    lat=params.get("lat", 0.0), lon=params.get("lon", 0.0), elevation_m=0.0
+                ).model_dump()
             return {}
 
     # ── Fire detection ────────────────────────────────────────
@@ -224,7 +224,7 @@ class SatelliteMCPServer(MCPServer):
                         confidence = row.get("confidence", "l")
                         if confidence == "l":
                             continue
-                            
+
                         frp = float(row.get("frp", 0))
                         if frp < 3.0:
                             continue

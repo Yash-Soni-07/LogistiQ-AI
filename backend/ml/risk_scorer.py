@@ -19,7 +19,7 @@ import asyncio
 import json
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import structlog
@@ -57,13 +57,13 @@ class RiskScore:
     strike_score: float
 
     # ── Composite ─────────────────────────────────────────────
-    risk_score: float                           # weighted composite [0.0 – 1.0]
-    composite_formula: str                      # human-readable formula used
+    risk_score: float  # weighted composite [0.0 – 1.0]
+    composite_formula: str  # human-readable formula used
 
     # ── Metadata ──────────────────────────────────────────────
     sources_used: list[str] = field(default_factory=list)
     cache_hit: bool = False
-    computed_at: str = ""                       # ISO-8601 UTC timestamp
+    computed_at: str = ""  # ISO-8601 UTC timestamp
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -88,16 +88,13 @@ _W_FLOOD = 0.40
 _W_FIRE = 0.25
 _W_STRIKE = 0.20
 _W_QUAKE = 0.15
-assert abs(_W_FLOOD + _W_FIRE + _W_STRIKE + _W_QUAKE - 1.0) < 1e-9, "Weights must sum to 1.0"
+assert abs(_W_FLOOD + _W_FIRE + _W_STRIKE + _W_QUAKE - 1.0) < 1e-9, "Weights must sum to 1.0"  # noqa: S101
 
-_FORMULA = (
-    f"composite = {_W_FLOOD}*flood + {_W_FIRE}*fire "
-    f"+ {_W_STRIKE}*strike + {_W_QUAKE}*quake"
-)
+_FORMULA = f"composite = {_W_FLOOD}*flood + {_W_FIRE}*fire + {_W_STRIKE}*strike + {_W_QUAKE}*quake"
 
 # Fire proximity thresholds (km)
-_FIRE_NEAR_KM = 5.0    # score = 0.9
-_FIRE_MID_KM = 10.0    # score = 0.6
+_FIRE_NEAR_KM = 5.0  # score = 0.9
+_FIRE_MID_KM = 10.0  # score = 0.6
 
 
 # ─────────────────────────────────────────────────────────────
@@ -106,14 +103,14 @@ _FIRE_MID_KM = 10.0    # score = 0.6
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371.0
+    earth_radius_km = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = (
         math.sin(dlat / 2) ** 2
         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     )
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return earth_radius_km * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -137,15 +134,15 @@ def _fire_proximity_score(
         try:
             f_lon, f_lat = float(coords[0]), float(coords[1])
             dist = _haversine_km(query_lat, query_lon, f_lat, f_lon)
-            
+
             if dist > _FIRE_MID_KM:
                 continue
 
             frp = float(feature.get("properties", {}).get("frp", 0.0))
-            
+
             # Distance weight: 1.0 if <= 5km, 0.5 if <= 10km
             dist_weight = 1.0 if dist <= _FIRE_NEAR_KM else 0.5
-            
+
             # Intensity weight
             if frp > 10.0:
                 frp_weight = 0.9
@@ -153,9 +150,9 @@ def _fire_proximity_score(
                 frp_weight = 0.6
             else:
                 frp_weight = 0.1
-                
+
             total_score += dist_weight * frp_weight
-            
+
         except (TypeError, ValueError):
             continue
     return min(total_score, 1.0)
@@ -205,7 +202,7 @@ async def compute_risk(
     -------
     RiskScore dataclass (frozen, JSON-serialisable via .to_dict()).
     """
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     cache_key = f"risk:{lat:.3f}:{lon:.3f}:{today}"
 
     # ── Cache read ────────────────────────────────────────────
@@ -237,7 +234,9 @@ async def compute_risk(
     # ── Fan-out: flood risk + fires + earthquakes concurrently ─
     bbox = [lon - 0.5, lat - 0.5, lon + 0.5, lat + 0.5]  # ~55 km box
 
-    async def _safe_mcp_call(client: MCPClient | None, tool: str, params: dict[str, Any], default: Any) -> Any:
+    async def _safe_mcp_call(
+        client: MCPClient | None, tool: str, params: dict[str, Any], default: Any
+    ) -> Any:
         if client is None:
             return default
         try:
@@ -260,14 +259,21 @@ async def compute_risk(
         return res
 
     async def _get_fires() -> list[dict[str, Any]]:
-        res = await _safe_mcp_call(satellite_client, "get_active_fires", {"bbox": bbox}, {"features": []})
+        res = await _safe_mcp_call(
+            satellite_client, "get_active_fires", {"bbox": bbox}, {"features": []}
+        )
         if res and "features" in res:
             sources_used.append("satellite:get_active_fires")
             return res.get("features", [])
         return []
 
     async def _get_quakes() -> list[dict[str, Any]]:
-        res = await _safe_mcp_call(satellite_client, "get_earthquake_alerts", {"lat": lat, "lon": lon, "radius_km": 100}, [])
+        res = await _safe_mcp_call(
+            satellite_client,
+            "get_earthquake_alerts",
+            {"lat": lat, "lon": lon, "radius_km": 100},
+            [],
+        )
         if res:
             sources_used.append("satellite:get_earthquake_alerts")
         return res if isinstance(res, list) else []
@@ -304,15 +310,12 @@ async def compute_risk(
 
     # ── Composite score ───────────────────────────────────────
     composite = round(
-        _W_FLOOD * flood_risk
-        + _W_FIRE * fire_score
-        + _W_STRIKE * strike_s
-        + _W_QUAKE * quake_s,
+        _W_FLOOD * flood_risk + _W_FIRE * fire_score + _W_STRIKE * strike_s + _W_QUAKE * quake_s,
         4,
     )
     composite = max(0.0, min(1.0, composite))
 
-    computed_at = datetime.now(tz=timezone.utc).isoformat()
+    computed_at = datetime.now(tz=UTC).isoformat()
 
     score = RiskScore(
         rain_score=round(rain_score, 4),

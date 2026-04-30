@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from typing import Any
 
 import httpx
@@ -19,7 +18,6 @@ import pybreaker
 import structlog
 from pydantic import BaseModel, Field
 
-from core.config import settings
 from core.redis import redis_client
 from mcp_servers.base import MCPServer, MCPToolSchema
 
@@ -74,6 +72,7 @@ class IMDBulletinResult(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # Helper: async HTTP fetches with circuit breakers
 # ─────────────────────────────────────────────────────────────
+
 
 async def _fetch_json(client: httpx.AsyncClient, url: str, params: dict | None = None) -> Any:
     resp = await client.get(url, params=params, timeout=15.0)
@@ -145,9 +144,7 @@ class WeatherMCPServer(MCPServer):
 
     # ── execute_tool dispatcher ───────────────────────────────
 
-    async def execute_tool(
-        self, name: str, params: dict[str, Any], tenant_id: str | None
-    ) -> Any:
+    async def execute_tool(self, name: str, params: dict[str, Any], tenant_id: str | None) -> Any:
         try:
             match name:
                 case "get_flood_risk":
@@ -166,18 +163,28 @@ class WeatherMCPServer(MCPServer):
             # Safe fallbacks per tool
             if name == "get_flood_risk":
                 return FloodRiskResult(
-                    lat=params.get("lat", 0.0), lon=params.get("lon", 0.0),
-                    risk_score=0.0, risk_level="LOW", rain_24h_mm=0.0, elevation_m=0.0
+                    lat=params.get("lat", 0.0),
+                    lon=params.get("lon", 0.0),
+                    risk_score=0.0,
+                    risk_level="LOW",
+                    rain_24h_mm=0.0,
+                    elevation_m=0.0,
                 ).model_dump()
             elif name == "get_forecast_72h":
                 return ForecastResult(
-                    lat=params.get("lat", 0.0), lon=params.get("lon", 0.0),
-                    hourly_timestamps=[], temperature_2m=[], precipitation=[], windspeed_10m=[]
+                    lat=params.get("lat", 0.0),
+                    lon=params.get("lon", 0.0),
+                    hourly_timestamps=[],
+                    temperature_2m=[],
+                    precipitation=[],
+                    windspeed_10m=[],
                 ).model_dump()
             elif name == "get_active_weather_alerts":
                 return []
             elif name == "get_imd_bulletin":
-                return IMDBulletinResult(raw_text="Unavailable", source_url="", fetched_at="").model_dump()
+                return IMDBulletinResult(
+                    raw_text="Unavailable", source_url="", fetched_at=""
+                ).model_dump()
             return {}
 
     # ── Tool implementations ──────────────────────────────────
@@ -221,9 +228,7 @@ class WeatherMCPServer(MCPServer):
         precip_vals: list[float] = meteo_data.get("hourly", {}).get("precipitation", [0.0])
         rain_24h = sum(precip_vals[:24])
 
-        elevation: float = (
-            elev_data.get("results", [{}])[0].get("elevation", 0.0) or 0.0
-        )
+        elevation: float = elev_data.get("results", [{}])[0].get("elevation", 0.0) or 0.0
 
         # Formula as specified
         rain_component = min(0.6 * (rain_24h / 20.0), 0.6)
@@ -339,6 +344,7 @@ class WeatherMCPServer(MCPServer):
                 text = await _fetch_text(client, imd_url)
             # Strip HTML tags for a plain-text summary (simple approach)
             import re
+
             clean = re.sub(r"<[^>]+>", " ", text)
             clean = re.sub(r"\s+", " ", clean).strip()[:2000]
         except Exception as exc:  # noqa: BLE001

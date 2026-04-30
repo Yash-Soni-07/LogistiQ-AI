@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Generic, TypeVar
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -18,10 +17,10 @@ T = TypeVar("T")
 # Deferred import to avoid circular dependency: models → schemas → models
 from db.models import DisruptionSeverity, DisruptionType  # noqa: E402
 
-
 # ─────────────────────────────────────────────────────────────
 # Auth
 # ─────────────────────────────────────────────────────────────
+
 
 class TokenPayload(BaseModel):
     user_id: str
@@ -35,7 +34,7 @@ class TokenPayload(BaseModel):
 class Token(BaseModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # noqa: S105
 
 
 class RegisterRequest(BaseModel):
@@ -54,6 +53,7 @@ class UserLogin(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # Tenant & User
 # ─────────────────────────────────────────────────────────────
+
 
 class TenantProfile(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -83,6 +83,7 @@ class UserProfile(BaseModel):
 # Pagination
 # ─────────────────────────────────────────────────────────────
 
+
 class PaginatedResponse(BaseModel, Generic[T]):
     model_config = ConfigDict(from_attributes=True)
 
@@ -95,6 +96,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
 # ─────────────────────────────────────────────────────────────
 # Shipments
 # ─────────────────────────────────────────────────────────────
+
 
 class ShipmentCreate(BaseModel):
     origin: str = Field(min_length=1)
@@ -148,6 +150,7 @@ class ShipmentRead(BaseModel):
 # Carriers
 # ─────────────────────────────────────────────────────────────
 
+
 class CarrierCreate(BaseModel):
     name: str = Field(min_length=1)
     modes: list[str] = Field(default_factory=list)
@@ -175,6 +178,7 @@ class CarrierRead(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # Disruptions
 # ─────────────────────────────────────────────────────────────
+
 
 class DisruptionCreate(BaseModel):
     type: DisruptionType
@@ -208,12 +212,12 @@ class DisruptionRead(BaseModel):
 # Billing
 # ─────────────────────────────────────────────────────────────
 
+
 class BillingStatusRead(BaseModel):
     plan_tier: str
     status: str
     razorpay_customer_id: str | None = None
     details: dict[str, Any] = Field(default_factory=dict)
-
 
 
 class SubscribeRequest(BaseModel):
@@ -228,6 +232,7 @@ class ChangePlanRequest(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # Health
 # ─────────────────────────────────────────────────────────────
+
 
 class HealthResponse(BaseModel):
     status: str

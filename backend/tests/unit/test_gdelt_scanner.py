@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import pytest
 
 from agents.gdelt_scanner import (
@@ -11,44 +10,49 @@ from agents.gdelt_scanner import (
 )
 from db.models import DisruptionType
 
-
 # ── classify_article ──────────────────────────────────────────
 
-@pytest.mark.parametrize("text,expected_type,min_prob", [
-    (
-        "Major truck driver strike blocks NH-8 highway India logistics",
-        DisruptionType.STRIKE,
-        0.5,
-    ),
-    (
-        "Cyclone Biparjoy floods Gujarat ports disrupts cargo",
-        DisruptionType.WEATHER,
-        0.5,
-    ),
-    (
-        "Port closure Nhava Sheva blocked by labour walkout",
-        DisruptionType.STRIKE,      # walkout matches STRIKE
-        0.5,
-    ),
-    (
-        "Landslide mudslide blocks NH-10 Sikkim road",
-        DisruptionType.NATURAL_DISASTER,
-        0.5,
-    ),
-    (
-        "Train derail cancels cargo Howrah route",
-        DisruptionType.TRAFFIC,
-        0.5,
-    ),
-    (
-        "Road accident pileup on Mumbai-Pune expressway",
-        DisruptionType.ACCIDENT,
-        0.5,
-    ),
-])
+
+@pytest.mark.parametrize(
+    "text,expected_type,min_prob",
+    [
+        (
+            "Major truck driver strike blocks NH-8 highway India logistics",
+            DisruptionType.STRIKE,
+            0.5,
+        ),
+        (
+            "Cyclone Biparjoy floods Gujarat ports disrupts cargo",
+            DisruptionType.WEATHER,
+            0.5,
+        ),
+        (
+            "Port closure Nhava Sheva blocked by labour walkout",
+            DisruptionType.STRIKE,  # walkout matches STRIKE
+            0.5,
+        ),
+        (
+            "Landslide mudslide blocks NH-10 Sikkim road",
+            DisruptionType.NATURAL_DISASTER,
+            0.5,
+        ),
+        (
+            "Train derail cancels cargo Howrah route",
+            DisruptionType.TRAFFIC,
+            0.5,
+        ),
+        (
+            "Road accident pileup on Mumbai-Pune expressway",
+            DisruptionType.ACCIDENT,
+            0.5,
+        ),
+    ],
+)
 def test_classify_article_known_signals(text, expected_type, min_prob):
     d_type, prob = classify_article(text)
-    assert d_type == expected_type, f"Expected {expected_type.value}, got {d_type.value} for: {text}"
+    assert d_type == expected_type, (
+        f"Expected {expected_type.value}, got {d_type.value} for: {text}"
+    )
     assert prob >= min_prob, f"Expected prob >= {min_prob}, got {prob}"
 
 
@@ -73,6 +77,7 @@ def test_classify_article_case_insensitive():
 
 
 # ── _article_segment_id ───────────────────────────────────────
+
 
 def test_article_segment_id_stable():
     article = {"url": "https://example.com/article/123"}

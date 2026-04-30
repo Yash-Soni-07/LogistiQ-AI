@@ -10,11 +10,11 @@ from typing import Any
 
 import structlog
 from pydantic import BaseModel
-from sqlalchemy import select, update, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy import select, text, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from core.config import settings
-from db.models import Shipment, ShipmentStatus, Tenant, User
+from db.models import Shipment
 from mcp_servers.base import MCPServer, MCPToolSchema
 
 log = structlog.get_logger(__name__)
@@ -76,7 +76,14 @@ class ShipmentMCPServer(MCPServer):
                 "properties": {
                     "status_filter": {
                         "type": "string",
-                        "enum": ["pending", "in_transit", "delivered", "delayed", "cancelled", "all"],
+                        "enum": [
+                            "pending",
+                            "in_transit",
+                            "delivered",
+                            "delayed",
+                            "cancelled",
+                            "all",
+                        ],
                         "default": "all",
                     },
                     "limit": {"type": "integer", "default": 50},
@@ -132,9 +139,7 @@ class ShipmentMCPServer(MCPServer):
         ),
     }
 
-    async def execute_tool(
-        self, name: str, params: dict[str, Any], tenant_id: str | None
-    ) -> Any:
+    async def execute_tool(self, name: str, params: dict[str, Any], tenant_id: str | None) -> Any:
         match name:
             case "list_shipments":
                 return await self._list_shipments(
@@ -170,9 +175,7 @@ class ShipmentMCPServer(MCPServer):
     ) -> list[dict[str, Any]]:
         async with _SessionLocal() as session:
             if tenant_id:
-                await session.execute(
-                    text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id}
-                )
+                await session.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id})
 
             stmt = select(Shipment).limit(limit).offset(offset)
             if status_filter != "all":
@@ -194,18 +197,12 @@ class ShipmentMCPServer(MCPServer):
             for s in rows
         ]
 
-    async def _get_shipment(
-        self, shipment_id: str, tenant_id: str | None
-    ) -> dict[str, Any]:
+    async def _get_shipment(self, shipment_id: str, tenant_id: str | None) -> dict[str, Any]:
         async with _SessionLocal() as session:
             if tenant_id:
-                await session.execute(
-                    text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id}
-                )
+                await session.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id})
             row = (
-                await session.execute(
-                    select(Shipment).where(Shipment.id == shipment_id)
-                )
+                await session.execute(select(Shipment).where(Shipment.id == shipment_id))
             ).scalar_one_or_none()
 
         if not row:
@@ -234,13 +231,9 @@ class ShipmentMCPServer(MCPServer):
     ) -> dict[str, Any]:
         async with _SessionLocal() as session:
             if tenant_id:
-                await session.execute(
-                    text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id}
-                )
+                await session.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id})
             await session.execute(
-                update(Shipment)
-                .where(Shipment.id == shipment_id)
-                .values(status=new_status)
+                update(Shipment).where(Shipment.id == shipment_id).values(status=new_status)
             )
             await session.commit()
 
@@ -256,9 +249,7 @@ class ShipmentMCPServer(MCPServer):
     async def _get_analytics(self, tenant_id: str | None) -> ShipmentAnalytics:
         async with _SessionLocal() as session:
             if tenant_id:
-                await session.execute(
-                    text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id}
-                )
+                await session.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id})
             rows = (await session.execute(select(Shipment))).scalars().all()
 
         total = len(rows)
@@ -283,14 +274,10 @@ class ShipmentMCPServer(MCPServer):
             on_time_rate=on_time_rate,
         )
 
-    async def _search(
-        self, query: str, tenant_id: str | None, limit: int
-    ) -> list[dict[str, Any]]:
+    async def _search(self, query: str, tenant_id: str | None, limit: int) -> list[dict[str, Any]]:
         async with _SessionLocal() as session:
             if tenant_id:
-                await session.execute(
-                    text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id}
-                )
+                await session.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": tenant_id})
             stmt = (
                 select(Shipment)
                 .where(

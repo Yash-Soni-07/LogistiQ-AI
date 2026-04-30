@@ -18,37 +18,49 @@ from core.exceptions import (
     ValidationError,
 )
 
-
 # ── Hierarchy ─────────────────────────────────────────────────
+
 
 def test_all_subclass_logistiq_error():
     for cls in (
-        NotFoundError, ConflictError, UnauthorizedError, ForbiddenError,
-        TenantIsolationError, ValidationError, RateLimitError,
-        ExternalServiceError, DatabaseError, AgentError,
+        NotFoundError,
+        ConflictError,
+        UnauthorizedError,
+        ForbiddenError,
+        TenantIsolationError,
+        ValidationError,
+        RateLimitError,
+        ExternalServiceError,
+        DatabaseError,
+        AgentError,
     ):
         assert issubclass(cls, LogistiQError), f"{cls} should subclass LogistiQError"
 
 
 # ── Status codes ──────────────────────────────────────────────
 
-@pytest.mark.parametrize("cls,code", [
-    (NotFoundError, 404),
-    (ConflictError, 409),
-    (UnauthorizedError, 401),
-    (ForbiddenError, 403),
-    (TenantIsolationError, 403),
-    (ValidationError, 422),
-    (RateLimitError, 429),
-    (ExternalServiceError, 502),
-    (DatabaseError, 500),
-    (AgentError, 500),
-])
+
+@pytest.mark.parametrize(
+    "cls,code",
+    [
+        (NotFoundError, 404),
+        (ConflictError, 409),
+        (UnauthorizedError, 401),
+        (ForbiddenError, 403),
+        (TenantIsolationError, 403),
+        (ValidationError, 422),
+        (RateLimitError, 429),
+        (ExternalServiceError, 502),
+        (DatabaseError, 500),
+        (AgentError, 500),
+    ],
+)
 def test_status_codes(cls, code):
     assert cls().status_code == code
 
 
 # ── to_dict contracts ─────────────────────────────────────────
+
 
 def test_not_found_to_dict_contains_id():
     d = NotFoundError("Shipment", "abc-123").to_dict()

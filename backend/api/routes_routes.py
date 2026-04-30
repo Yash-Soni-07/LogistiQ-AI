@@ -15,8 +15,8 @@ Follows the same patterns as shipment_routes.py:
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
-from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, Depends, Query
@@ -37,6 +37,7 @@ router = APIRouter(prefix="/routes", tags=["routes"])
 # ─────────────────────────────────────────────────────────────
 # GET /routes
 # ─────────────────────────────────────────────────────────────
+
 
 @router.get("", response_model=PaginatedResponse[dict[str, Any]])
 async def list_route_segments(
@@ -59,9 +60,7 @@ async def list_route_segments(
     total: int = (await db.execute(count_q)).scalar_one()
 
     # Paginated rows
-    rows = (
-        await db.execute(base_q.offset(offset).limit(limit))
-    ).scalars().all()
+    rows = (await db.execute(base_q.offset(offset).limit(limit))).scalars().all()
 
     items = [
         {
@@ -86,6 +85,7 @@ async def list_route_segments(
 # ─────────────────────────────────────────────────────────────
 # GET /routes/geojson  (must be before /{segment_id} to avoid routing conflict)
 # ─────────────────────────────────────────────────────────────
+
 
 @router.get("/geojson", response_model=dict[str, Any])
 async def route_segments_geojson(
@@ -141,6 +141,7 @@ async def route_segments_geojson(
 # GET /routes/{segment_id}
 # ─────────────────────────────────────────────────────────────
 
+
 @router.get("/{segment_id}", response_model=dict[str, Any])
 async def get_route_segment(
     segment_id: str,
@@ -179,6 +180,7 @@ async def get_route_segment(
 # POST /routes/simulate-disruption
 # ─────────────────────────────────────────────────────────────
 
+
 @router.post("/simulate-disruption", response_model=dict[str, Any])
 async def simulate_disruption(
     segment_id: str | None = None,
@@ -191,8 +193,9 @@ async def simulate_disruption(
     Useful for front-end development and demo without requiring the
     sentinel scheduler to be running.
     """
-    from api.websocket_routes import manager
-    from datetime import datetime, timezone
+    from datetime import datetime
+
+    from api.websocket_routes import manager  # noqa: E402
 
     payload = {
         "type": "new_disruption",
@@ -200,16 +203,19 @@ async def simulate_disruption(
         "risk_score": risk_score,
         "segment_id": segment_id,
         "simulated": True,
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
     }
 
     tenant_id = str(current_user.tenant_id)
     await manager.broadcast_to_channel(f"tenant:{tenant_id}:disruptions", payload)
-    await manager.broadcast_to_channel(f"tenant:{tenant_id}:dashboard", {
-        "type": "tick",
-        "connections": manager.connection_count(),
-        "ts": datetime.now(timezone.utc).isoformat(),
-    })
+    await manager.broadcast_to_channel(
+        f"tenant:{tenant_id}:dashboard",
+        {
+            "type": "tick",
+            "connections": manager.connection_count(),
+            "ts": datetime.now(UTC).isoformat(),
+        },
+    )
 
     log.info(
         "routes.simulate_disruption",

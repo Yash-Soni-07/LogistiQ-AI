@@ -20,11 +20,11 @@ import os
 # activates correctly (skips real DB/Redis pings and engine.dispose in lifespan).
 os.environ.setdefault("TESTING", "true")
 
-from typing import Any, AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock
+from collections.abc import AsyncGenerator
+from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
-
 import pytest_asyncio
 from fakeredis.aioredis import FakeRedis
 from httpx import ASGITransport, AsyncClient
@@ -46,11 +46,11 @@ def event_loop():
     loop.close()
 
 
-
 @pytest_asyncio.fixture(scope="session")
 async def db_engine():
     """Session-scoped engine so aiosqlite background threads don't cross loops."""
     import aiosqlite  # noqa: F401
+
     engine = create_async_engine(
         _TEST_DB_URL,
         connect_args={"check_same_thread": False},
@@ -87,16 +87,16 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
         await conn.run_sync(Base.metadata.drop_all)
 
 
-
 @pytest_asyncio.fixture(scope="function")
 async def redis_mock(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     """Replace the global redis_client with an in-memory FakeRedis instance."""
     fake = FakeRedis(decode_responses=True)
     # Patch every module that imported redis_client at load time
-    import core.redis as _cr
-    import billing.usage_tracker as ut
     import agents.gdelt_scanner as gs
+    import billing.usage_tracker as ut
+    import core.redis as _cr
     import ml.risk_scorer as rs
+
     monkeypatch.setattr(_cr, "redis_client", fake)
     monkeypatch.setattr(ut, "redis_client", fake)
     monkeypatch.setattr(gs, "redis_client", fake)
@@ -106,6 +106,7 @@ async def redis_mock(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
 
 
 # ── MCP mock clients ──────────────────────────────────────────
+
 
 @pytest.fixture()
 def mock_weather_client() -> AsyncMock:
@@ -138,17 +139,22 @@ def mock_satellite_client() -> AsyncMock:
 
 
 @pytest.fixture()
-def mock_mcp_clients(mock_weather_client: AsyncMock, mock_satellite_client: AsyncMock) -> dict[str, Any]:
+def mock_mcp_clients(
+    mock_weather_client: AsyncMock, mock_satellite_client: AsyncMock
+) -> dict[str, Any]:
     return {"weather": mock_weather_client, "satellite": mock_satellite_client}
 
 
 # ── Sample ORM objects ────────────────────────────────────────
 
+
 @pytest_asyncio.fixture()
 async def sample_tenant(db_session: AsyncSession):
     """Insert and return a test Tenant."""
     import uuid
+
     from db.models import Tenant
+
     tenant = Tenant(id=str(uuid.uuid4()), name="Test Corp")
     db_session.add(tenant)
     await db_session.commit()
@@ -160,8 +166,10 @@ async def sample_tenant(db_session: AsyncSession):
 async def sample_user(db_session: AsyncSession, sample_tenant):
     """Insert and return an ADMIN User for the test tenant."""
     import uuid
+
     from core.auth import hash_password
     from db.models import User, UserRole
+
     user = User(
         id=str(uuid.uuid4()),
         tenant_id=str(sample_tenant.id),
@@ -180,8 +188,10 @@ async def sample_user(db_session: AsyncSession, sample_tenant):
 async def sample_operator(db_session: AsyncSession, sample_tenant):
     """Insert and return an OPERATOR User."""
     import uuid
+
     from core.auth import hash_password
     from db.models import User, UserRole
+
     user = User(
         id=str(uuid.uuid4()),
         tenant_id=str(sample_tenant.id),
@@ -200,7 +210,9 @@ async def sample_operator(db_session: AsyncSession, sample_tenant):
 async def sample_shipment(db_session: AsyncSession, sample_tenant):
     """Insert and return an IN_TRANSIT Shipment."""
     import uuid
+
     from db.models import Shipment, ShipmentMode, ShipmentStatus
+
     shipment = Shipment(
         id=str(uuid.uuid4()),
         tenant_id=str(sample_tenant.id),
@@ -219,34 +231,36 @@ async def sample_shipment(db_session: AsyncSession, sample_tenant):
 
 # ── Auth token helpers ────────────────────────────────────────
 
+
 @pytest.fixture()
 def admin_token(sample_user, sample_tenant) -> str:
     from core.auth import create_access_token
-    return create_access_token(
-        str(sample_user.id), str(sample_tenant.id), "admin"
-    )
+
+    return create_access_token(str(sample_user.id), str(sample_tenant.id), "admin")
 
 
 @pytest.fixture()
 def operator_token(sample_operator, sample_tenant) -> str:
     from core.auth import create_access_token
-    return create_access_token(
-        str(sample_operator.id), str(sample_tenant.id), "operator"
-    )
+
+    return create_access_token(str(sample_operator.id), str(sample_tenant.id), "operator")
 
 
 # ── HTTP test client ──────────────────────────────────────────
 
+
 @pytest_asyncio.fixture()
-async def app_client(db_session: AsyncSession, redis_mock: FakeRedis) -> AsyncGenerator[AsyncClient, None]:
+async def app_client(
+    db_session: AsyncSession, redis_mock: FakeRedis
+) -> AsyncGenerator[AsyncClient, None]:
     """
     Async HTTP test client backed by the FastAPI app.
 
     Overrides get_db_session and redis_client so routes use the
     in-memory test fixtures instead of real infrastructure.
     """
-    from main import app
     from db.database import get_db_session
+    from main import app
 
     async def _override_db(connection=None):
         yield db_session

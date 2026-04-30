@@ -46,7 +46,11 @@ async def list_disruptions(
     db: AsyncSession = Depends(get_db_session),
 ) -> dict[str, Any]:
     q = select(DisruptionEvent).where(DisruptionEvent.tenant_id == user.tenant_id)
-    cq = select(func.count()).select_from(DisruptionEvent).where(DisruptionEvent.tenant_id == user.tenant_id)
+    cq = (
+        select(func.count())
+        .select_from(DisruptionEvent)
+        .where(DisruptionEvent.tenant_id == user.tenant_id)
+    )
 
     filter_status = status or "active"
     q = q.where(DisruptionEvent.status == filter_status)
@@ -62,7 +66,12 @@ async def list_disruptions(
     q = q.order_by(DisruptionEvent.created_at.desc()).offset(offset).limit(limit)
     total = (await db.execute(cq)).scalar_one()
     rows = (await db.execute(q)).scalars().all()
-    return {"total": total, "offset": offset, "limit": limit, "items": [DisruptionRead.model_validate(r) for r in rows]}
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [DisruptionRead.model_validate(r) for r in rows],
+    }
 
 
 @router.post("", response_model=DisruptionRead, status_code=201)
@@ -85,7 +94,9 @@ async def report_disruption(
     db.add(event)
     await db.commit()
     await db.refresh(event)
-    log.info("disruption.reported", id=str(event.id), type=body.type.value, tenant_id=str(user.tenant_id))
+    log.info(
+        "disruption.reported", id=str(event.id), type=body.type.value, tenant_id=str(user.tenant_id)
+    )
     return event
 
 
@@ -96,7 +107,9 @@ async def affected_shipments(
     db: AsyncSession = Depends(get_db_session),
 ) -> list[dict[str, Any]]:
     """Shipments whose route segments fall within the disruption radius (PostGIS)."""
-    event = (await db.execute(select(DisruptionEvent).where(DisruptionEvent.id == str(disruption_id)))).scalar_one_or_none()
+    event = (
+        await db.execute(select(DisruptionEvent).where(DisruptionEvent.id == str(disruption_id)))
+    ).scalar_one_or_none()
     if not event:
         raise NotFoundError("DisruptionEvent", str(disruption_id))
     _check_tenant(event, user)
@@ -111,7 +124,14 @@ async def affected_shipments(
               AND ST_DWithin(rs.geom::geography, :center::geography, :radius_m)
             ORDER BY s.id LIMIT 50
         """)
-        result = await db.execute(sql, {"tid": str(user.tenant_id), "center": f"SRID=4326;{event.center_geom}", "radius_m": radius_m})
+        result = await db.execute(
+            sql,
+            {
+                "tid": str(user.tenant_id),
+                "center": f"SRID=4326;{event.center_geom}",
+                "radius_m": radius_m,
+            },
+        )
         return [dict(r) for r in result.mappings().all()]
     except Exception as exc:  # noqa: BLE001
         log.warning("disruptions.spatial_query_failed", error=str(exc))
@@ -124,7 +144,9 @@ async def get_disruption(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db_session),
 ) -> DisruptionEvent:
-    row = (await db.execute(select(DisruptionEvent).where(DisruptionEvent.id == str(disruption_id)))).scalar_one_or_none()
+    row = (
+        await db.execute(select(DisruptionEvent).where(DisruptionEvent.id == str(disruption_id)))
+    ).scalar_one_or_none()
     if not row:
         raise NotFoundError("DisruptionEvent", str(disruption_id))
     _check_tenant(row, user)
@@ -137,7 +159,9 @@ async def resolve_disruption(
     user: User = Depends(require_role(UserRole.MANAGER)),
     db: AsyncSession = Depends(get_db_session),
 ) -> DisruptionEvent:
-    row = (await db.execute(select(DisruptionEvent).where(DisruptionEvent.id == str(disruption_id)))).scalar_one_or_none()
+    row = (
+        await db.execute(select(DisruptionEvent).where(DisruptionEvent.id == str(disruption_id)))
+    ).scalar_one_or_none()
     if not row:
         raise NotFoundError("DisruptionEvent", str(disruption_id))
     _check_tenant(row, user)

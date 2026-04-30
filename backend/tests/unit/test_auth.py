@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock
 
-from fastapi import HTTPException
-
-from core.exceptions import UnauthorizedError
+import pytest
 
 from core.auth import (
     create_access_token,
@@ -17,9 +13,10 @@ from core.auth import (
     hash_password,
     verify_password,
 )
-
+from core.exceptions import UnauthorizedError
 
 # ── Password hashing ──────────────────────────────────────────
+
 
 def test_hash_password_is_not_plaintext():
     hashed = hash_password("MySecret123")
@@ -46,6 +43,7 @@ def test_hash_is_unique_per_call():
 
 # ── JWT creation and decoding ─────────────────────────────────
 
+
 def test_create_and_decode_access_token():
     token = create_access_token("user-1", "tenant-1", "admin")
     payload = decode_token(token)
@@ -63,7 +61,9 @@ def test_access_token_custom_expiry():
 
 def test_create_refresh_token_type():
     from jose import jwt
+
     from core.config import settings
+
     token = create_refresh_token("user-2", "tenant-2")
     # Decode without validation to inspect type field
     payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
@@ -87,8 +87,8 @@ def test_decode_expired_token_raises_401():
 
 def test_decode_token_wrong_secret():
     """Token signed with different secret should fail."""
-    import os
     from unittest.mock import patch
+
     token = create_access_token("u", "t", "admin")
     with patch("core.auth.settings") as mock_settings:
         mock_settings.SECRET_KEY = "completely-different-secret"

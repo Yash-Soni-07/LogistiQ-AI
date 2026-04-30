@@ -31,7 +31,6 @@ from unittest.mock import patch
 import pytest
 from httpx import AsyncClient
 
-
 # ── Helpers ───────────────────────────────────────────────────
 
 
@@ -41,13 +40,16 @@ async def _register(client: AsyncClient, email: str) -> str:
     The register endpoint creates the first user in a new tenant as ADMIN,
     which satisfies require_role(MANAGER) because ADMIN passes any role check.
     """
-    resp = await client.post("/auth/register", json={
-        "email": email,
-        "password": "Pass123!",
-        "company_name": f"Corp-{email[:6]}",
-        "first_name": "T",
-        "last_name": "U",
-    })
+    resp = await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "Pass123!",
+            "company_name": f"Corp-{email[:6]}",
+            "first_name": "T",
+            "last_name": "U",
+        },
+    )
     assert resp.status_code == 201, f"Register failed: {resp.text}"
     return resp.json()["access_token"]
 
@@ -171,8 +173,16 @@ async def test_get_disruption_invalid_uuid(app_client: AsyncClient, redis_mock):
 async def test_get_disruption_success(app_client: AsyncClient, redis_mock, db_session):
     """Insert a disruption directly into DB, then GET it by ID."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     # Create a fresh tenant + user
     tenant = Tenant(id=str(_uuid.uuid4()), name="SpatialCorp")
@@ -229,8 +239,16 @@ async def test_resolve_disruption_not_found(app_client: AsyncClient, redis_mock)
 async def test_resolve_disruption_success(app_client: AsyncClient, redis_mock, db_session):
     """Insert active disruption → resolve → status becomes 'resolved'."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     tenant = Tenant(id=str(_uuid.uuid4()), name="ResolveCorp")
     db_session.add(tenant)
@@ -265,11 +283,21 @@ async def test_resolve_disruption_success(app_client: AsyncClient, redis_mock, d
 
 
 @pytest.mark.asyncio
-async def test_resolve_already_resolved_returns_422(app_client: AsyncClient, redis_mock, db_session):
+async def test_resolve_already_resolved_returns_422(
+    app_client: AsyncClient, redis_mock, db_session
+):
     """Resolving an already-resolved disruption → 422 ValidationError."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     tenant = Tenant(id=str(_uuid.uuid4()), name="DoubleResolveCorp")
     db_session.add(tenant)
@@ -290,7 +318,7 @@ async def test_resolve_already_resolved_returns_422(app_client: AsyncClient, red
         tenant_id=str(tenant.id),
         type=DisruptionType.TRAFFIC,
         severity=DisruptionSeverity.LOW,
-        status="resolved",                  # already resolved
+        status="resolved",  # already resolved
         center_geom="SRID=4326;POINT(80.270 13.082)",
         radius_km=5.0,
     )
@@ -322,8 +350,16 @@ async def test_affected_shipments_not_found(app_client: AsyncClient, redis_mock)
 async def test_affected_shipments_returns_list(app_client: AsyncClient, redis_mock, db_session):
     """For a valid disruption, /affected returns a list (empty under SQLite — no PostGIS)."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     tenant = Tenant(id=str(_uuid.uuid4()), name="AffectedCorp")
     db_session.add(tenant)
@@ -368,8 +404,16 @@ async def test_affected_shipments_returns_list(app_client: AsyncClient, redis_mo
 async def test_list_disruptions_filter_by_type(app_client: AsyncClient, redis_mock, db_session):
     """?type=weather returns only weather disruptions."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     tenant = Tenant(id=str(_uuid.uuid4()), name="FilterCorp")
     db_session.add(tenant)
@@ -390,15 +434,17 @@ async def test_list_disruptions_filter_by_type(app_client: AsyncClient, redis_mo
         (DisruptionType.WEATHER, "Cyclone"),
         (DisruptionType.STRIKE, "Port walkout"),
     ]:
-        db_session.add(DisruptionEvent(
-            id=str(_uuid.uuid4()),
-            tenant_id=str(tenant.id),
-            type=d_type,
-            severity=DisruptionSeverity.MEDIUM,
-            status="active",
-            center_geom="SRID=4326;POINT(72.877 19.076)",
-            description=desc,
-        ))
+        db_session.add(
+            DisruptionEvent(
+                id=str(_uuid.uuid4()),
+                tenant_id=str(tenant.id),
+                type=d_type,
+                severity=DisruptionSeverity.MEDIUM,
+                status="active",
+                center_geom="SRID=4326;POINT(72.877 19.076)",
+                description=desc,
+            )
+        )
     await db_session.commit()
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
@@ -416,8 +462,16 @@ async def test_list_disruptions_filter_by_type(app_client: AsyncClient, redis_mo
 async def test_list_disruptions_filter_by_severity(app_client: AsyncClient, redis_mock, db_session):
     """?severity=critical returns only critical disruptions."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     tenant = Tenant(id=str(_uuid.uuid4()), name="SeverityCorp")
     db_session.add(tenant)
@@ -434,14 +488,16 @@ async def test_list_disruptions_filter_by_severity(app_client: AsyncClient, redi
     await db_session.flush()
 
     for sev in [DisruptionSeverity.LOW, DisruptionSeverity.CRITICAL, DisruptionSeverity.CRITICAL]:
-        db_session.add(DisruptionEvent(
-            id=str(_uuid.uuid4()),
-            tenant_id=str(tenant.id),
-            type=DisruptionType.WEATHER,
-            severity=sev,
-            status="active",
-            center_geom="SRID=4326;POINT(72.877 19.076)",
-        ))
+        db_session.add(
+            DisruptionEvent(
+                id=str(_uuid.uuid4()),
+                tenant_id=str(tenant.id),
+                type=DisruptionType.WEATHER,
+                severity=sev,
+                status="active",
+                center_geom="SRID=4326;POINT(72.877 19.076)",
+            )
+        )
     await db_session.commit()
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
@@ -456,8 +512,16 @@ async def test_list_disruptions_filter_by_severity(app_client: AsyncClient, redi
 async def test_list_resolved_disruptions(app_client: AsyncClient, redis_mock, db_session):
     """?status=resolved returns resolved disruptions (default filter is 'active')."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     tenant = Tenant(id=str(_uuid.uuid4()), name="ResolvedCorp")
     db_session.add(tenant)
@@ -473,14 +537,16 @@ async def test_list_resolved_disruptions(app_client: AsyncClient, redis_mock, db
     db_session.add(user)
     await db_session.flush()
 
-    db_session.add(DisruptionEvent(
-        id=str(_uuid.uuid4()),
-        tenant_id=str(tenant.id),
-        type=DisruptionType.TRAFFIC,
-        severity=DisruptionSeverity.LOW,
-        status="resolved",
-        center_geom="SRID=4326;POINT(77.594 12.971)",
-    ))
+    db_session.add(
+        DisruptionEvent(
+            id=str(_uuid.uuid4()),
+            tenant_id=str(tenant.id),
+            type=DisruptionType.TRAFFIC,
+            severity=DisruptionSeverity.LOW,
+            status="resolved",
+            center_geom="SRID=4326;POINT(77.594 12.971)",
+        )
+    )
     await db_session.commit()
 
     token = create_access_token(str(user.id), str(tenant.id), "admin")
@@ -501,8 +567,16 @@ async def test_list_resolved_disruptions(app_client: AsyncClient, redis_mock, db
 async def test_disruption_tenant_isolation(app_client: AsyncClient, redis_mock, db_session):
     """User from tenant A cannot read disruption belonging to tenant B."""
     import uuid as _uuid
-    from db.models import DisruptionEvent, DisruptionType, DisruptionSeverity, Tenant, User, UserRole
-    from core.auth import hash_password, create_access_token
+
+    from core.auth import create_access_token, hash_password
+    from db.models import (
+        DisruptionEvent,
+        DisruptionSeverity,
+        DisruptionType,
+        Tenant,
+        User,
+        UserRole,
+    )
 
     tenant_a = Tenant(id=str(_uuid.uuid4()), name="TenantA")
     tenant_b = Tenant(id=str(_uuid.uuid4()), name="TenantB")
@@ -510,8 +584,11 @@ async def test_disruption_tenant_isolation(app_client: AsyncClient, redis_mock, 
     await db_session.flush()
 
     user_a = User(
-        id=str(_uuid.uuid4()), tenant_id=str(tenant_a.id),
-        email="usera_iso@test.com", hashed_password=hash_password("x"), role=UserRole.ADMIN,
+        id=str(_uuid.uuid4()),
+        tenant_id=str(tenant_a.id),
+        email="usera_iso@test.com",
+        hashed_password=hash_password("x"),
+        role=UserRole.ADMIN,
     )
     db_session.add(user_a)
     await db_session.flush()

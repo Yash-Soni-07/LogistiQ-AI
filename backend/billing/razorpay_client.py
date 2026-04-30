@@ -50,6 +50,7 @@ def _get_client() -> Any:
         return None
     try:
         import razorpay as _rp
+
         _client = _rp.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
         log.info("razorpay.initialised")
         return _client
@@ -61,6 +62,7 @@ def _get_client() -> Any:
 # ─────────────────────────────────────────────────────────────
 # Internal helper: run sync SDK call off the event loop
 # ─────────────────────────────────────────────────────────────
+
 
 async def _run(fn, *args: Any, **kwargs: Any) -> Any:
     """Execute a synchronous Razorpay SDK call in a thread pool."""
@@ -85,11 +87,14 @@ async def create_customer(*, email: str, name: str, tenant_id: str) -> str | Non
     if rp is None:
         log.warning("razorpay.create_customer.skipped", email=email)
         return None
-    data = await _run(rp.customer.create, {
-        "name": name,
-        "email": email,
-        "notes": {"tenant_id": tenant_id},
-    })
+    data = await _run(
+        rp.customer.create,
+        {
+            "name": name,
+            "email": email,
+            "notes": {"tenant_id": tenant_id},
+        },
+    )
     log.info("razorpay.customer_created", customer_id=data["id"], tenant_id=tenant_id)
     return data["id"]
 
@@ -115,18 +120,21 @@ async def create_subscription(
         raise ExternalServiceError(
             "Razorpay",
             message=f"No Razorpay plan ID configured for tier '{tier}'. "
-                    "Set RAZORPAY_{STARTER,PRO,ENTERPRISE}_PLAN_ID in .env.",
+            "Set RAZORPAY_{STARTER,PRO,ENTERPRISE}_PLAN_ID in .env.",
         )
 
-    sub = await _run(rp.subscription.create, {
-        "plan_id": plan_id,
-        "customer_notify": 1,
-        "quantity": 1,
-        "total_count": 12,  # 12 billing cycles
-        "start_at": None,   # start immediately
-        "notes": {"tenant_id": customer_id, "tier": tier},
-        "offer_id": None,
-    })
+    sub = await _run(
+        rp.subscription.create,
+        {
+            "plan_id": plan_id,
+            "customer_notify": 1,
+            "quantity": 1,
+            "total_count": 12,  # 12 billing cycles
+            "start_at": None,  # start immediately
+            "notes": {"tenant_id": customer_id, "tier": tier},
+            "offer_id": None,
+        },
+    )
     log.info(
         "razorpay.subscription_created",
         subscription_id=sub["id"],
@@ -137,7 +145,9 @@ async def create_subscription(
     return dict(sub)
 
 
-async def cancel_subscription(*, subscription_id: str, at_period_end: bool = True) -> dict[str, Any] | None:
+async def cancel_subscription(
+    *, subscription_id: str, at_period_end: bool = True
+) -> dict[str, Any] | None:
     """Cancel a Razorpay subscription.
 
     ``at_period_end=True`` uses ``cancel_at_cycle_end=1`` (Razorpay default).
@@ -153,7 +163,9 @@ async def cancel_subscription(*, subscription_id: str, at_period_end: bool = Tru
         subscription_id,
         {"cancel_at_cycle_end": 1 if at_period_end else 0},
     )
-    log.info("razorpay.subscription_cancelled", subscription_id=subscription_id, status=sub["status"])
+    log.info(
+        "razorpay.subscription_cancelled", subscription_id=subscription_id, status=sub["status"]
+    )
     return dict(sub)
 
 
@@ -165,7 +177,9 @@ async def change_plan(*, subscription_id: str, new_tier: str) -> dict[str, Any] 
     """
     rp = _get_client()
     if rp is None:
-        log.warning("razorpay.change_plan.skipped", subscription_id=subscription_id, new_tier=new_tier)
+        log.warning(
+            "razorpay.change_plan.skipped", subscription_id=subscription_id, new_tier=new_tier
+        )
         return None
 
     plan_id = _plan_id_for_tier(new_tier)
@@ -207,10 +221,11 @@ def verify_webhook_signature(payload: bytes, signature: str) -> dict[str, Any]:
 # Internal: plan-ID lookup
 # ─────────────────────────────────────────────────────────────
 
+
 def _plan_id_for_tier(tier: str) -> str | None:
     mapping = {
-        "starter":    getattr(settings, "RAZORPAY_STARTER_PLAN_ID", None),
-        "pro":        getattr(settings, "RAZORPAY_PRO_PLAN_ID", None),
+        "starter": getattr(settings, "RAZORPAY_STARTER_PLAN_ID", None),
+        "pro": getattr(settings, "RAZORPAY_PRO_PLAN_ID", None),
         "enterprise": getattr(settings, "RAZORPAY_ENTERPRISE_PLAN_ID", None),
     }
     return mapping.get(tier.lower())

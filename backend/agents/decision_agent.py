@@ -20,6 +20,7 @@ log = structlog.get_logger(__name__)
 # ── Circuit Breakers ──
 gemini_breaker = pybreaker.CircuitBreaker(fail_max=5, reset_timeout=120)
 
+
 # ── 1. Schema Normalization ──
 class DisruptionEvent(BaseModel):
     event_id: str
@@ -30,6 +31,7 @@ class DisruptionEvent(BaseModel):
     timestamp: str
     lat: float
     lon: float
+
 
 # ── 2. LangGraph State Definition ──
 class AgentState(TypedDict):
@@ -47,6 +49,7 @@ class AgentState(TypedDict):
     gemini_tokens_used: int
     total_cost_delta_inr: float
 
+
 # ── 3. Tool Definitions (Langchain @tool) ──
 @tool
 def get_affected_shipments(
@@ -55,22 +58,26 @@ def get_affected_shipments(
     """Get SLA-critical shipments affected by a disrupted segment."""
     return [{"shipment_id": "ship-1", "critical": True}]
 
+
 @tool
 def get_alternate_routes(shipment_ids: list[str], blocked_segment_id: str) -> dict[str, Any]:
     """Get top 3 alternate routes per shipment."""
     # TODO(Phase 3): Wire to routing MCP
     return {"ship-1": [{"route_id": "alt-route-1", "cost_delta": 10000, "delay_hours": 2}]}
 
+
 @tool
 def get_sla_breach_risk(shipment_ids: list[str]) -> list[dict[str, Any]]:
     """Get SLA breach probability and hours to deadline."""
     return [{"shipment_id": "ship-1", "breach_prob": 0.8, "hours_left": 12}]
+
 
 @tool
 def book_carrier(shipment_id: str, route_id: str, carrier_id: str) -> dict[str, Any]:
     """Book a carrier for an alternate route."""
     # TODO(Phase 3): Wire to routing MCP
     return {"status": "booked", "booking_id": "bk-123"}
+
 
 @tool
 def send_alert(
@@ -79,6 +86,7 @@ def send_alert(
     """Send an alert to specific recipients."""
     return {"status": "sent", "delivered_count": len(ids)}
 
+
 @tool
 def log_decision(
     reasoning_summary: str, actions_taken: list[dict], cost_impact: float, co2_impact: float
@@ -86,17 +94,23 @@ def log_decision(
     """Log the final decision and reasoning."""
     return {"decision_id": "dec-123", "status": "logged"}
 
+
 tools = [
-    get_affected_shipments, get_alternate_routes, get_sla_breach_risk,
-    book_carrier, send_alert, log_decision
+    get_affected_shipments,
+    get_alternate_routes,
+    get_sla_breach_risk,
+    book_carrier,
+    send_alert,
+    log_decision,
 ]
 tool_map = {t.name: t for t in tools}
+
 
 # ── 4. Graph Nodes ──
 async def receive_disruption_node(state: AgentState) -> AgentState:
     raw_event = state["disruption_event"]
     trace_id = str(uuid.uuid4())
-    
+
     # Normalize schema
     if "segment_id" in raw_event:
         affected = [raw_event["segment_id"]]
@@ -110,7 +124,7 @@ async def receive_disruption_node(state: AgentState) -> AgentState:
         if raw_event.get("source_count", 1) >= 5:
             severity = "critical"
         desc = raw_event.get("description", "")
-        
+
     normalized = DisruptionEvent(
         event_id=raw_event.get("event_id", str(uuid.uuid4())),
         affected_segments=affected,
@@ -119,9 +133,9 @@ async def receive_disruption_node(state: AgentState) -> AgentState:
         description=desc,
         timestamp=raw_event.get("timestamp", datetime.now(UTC).isoformat()),
         lat=float(raw_event.get("lat", 0.0)),
-        lon=float(raw_event.get("lon", 0.0))
+        lon=float(raw_event.get("lon", 0.0)),
     )
-    
+
     return {
         **state,
         "disruption_event": normalized.model_dump(),
@@ -130,94 +144,99 @@ async def receive_disruption_node(state: AgentState) -> AgentState:
         "human_escalated": False,
         "gemini_tokens_used": 0,
         "total_cost_delta_inr": 0.0,
-        "tenant_id": state.get("tenant_id", "default_tenant")
+        "tenant_id": state.get("tenant_id", "default_tenant"),
     }
+
 
 async def fetch_context_node(state: AgentState) -> AgentState:
     log.info(
-        "agent.node", 
-        node_name="fetch_context_node", 
-        trace_id=state["trace_id"], 
-        state_keys=list(state.keys())
+        "agent.node",
+        node_name="fetch_context_node",
+        trace_id=state["trace_id"],
+        state_keys=list(state.keys()),
     )
     segments = state["disruption_event"]["affected_segments"]
-    
+
     # Call async tools directly for now as stubs
     # In real execution, we'd use gather over actual DB functions
     shipments = []
     for seg in segments:
         res = get_affected_shipments.invoke({"segment_id": seg, "tenant_ids": [state["tenant_id"]]})
         shipments.extend(res)
-        
+
     shipment_ids = [s["shipment_id"] for s in shipments]
     sla_risks = get_sla_breach_risk.invoke({"shipment_ids": shipment_ids}) if shipment_ids else []
-    
+
     return {**state, "affected_shipments": shipments, "sla_at_risk": sla_risks}
+
 
 async def evaluate_routes_node(state: AgentState) -> AgentState:
     log.info(
-        "agent.node", 
-        node_name="evaluate_routes_node", 
-        trace_id=state["trace_id"], 
-        state_keys=list(state.keys())
+        "agent.node",
+        node_name="evaluate_routes_node",
+        trace_id=state["trace_id"],
+        state_keys=list(state.keys()),
     )
     shipment_ids = [s["shipment_id"] for s in state["affected_shipments"]]
     segments = state["disruption_event"]["affected_segments"]
-    
+
     candidate_routes = {}
     if shipment_ids and segments:
         res = get_alternate_routes.invoke(
             {"shipment_ids": shipment_ids, "blocked_segment_id": segments[0]}
         )
         candidate_routes = res
-        
+
     return {**state, "candidate_routes": candidate_routes}
+
 
 async def gemini_select_node(state: AgentState) -> AgentState:
     log.info(
-        "agent.node", 
-        node_name="gemini_select_node", 
-        trace_id=state["trace_id"], 
-        state_keys=list(state.keys())
+        "agent.node",
+        node_name="gemini_select_node",
+        trace_id=state["trace_id"],
+        state_keys=list(state.keys()),
     )
-    
+
     llm = ChatGoogleGenerativeAI(
         model=settings.GEMINI_MODEL,
         api_key=(
-            settings.GEMINI_API_KEY.get_secret_value() 
-            if hasattr(settings.GEMINI_API_KEY, "get_secret_value") 
+            settings.GEMINI_API_KEY.get_secret_value()
+            if hasattr(settings.GEMINI_API_KEY, "get_secret_value")
             else settings.GEMINI_API_KEY
         ),
-        temperature=0.0
+        temperature=0.0,
     ).bind_tools(tools)
-    
-    system_prompt = SystemMessage(content=(
-        "You are an expert logistics AI. You must prioritize SLA > Cost > Carbon. "
-        "Analyze the state and use tools to make re-routing decisions or alerts. "
-        "Your final response MUST include tool calls for book_carrier or send_alert, "
-        "along with log_decision. Do not execute them yourself, just return the tool calls."
-    ))
-    
+
+    system_prompt = SystemMessage(
+        content=(
+            "You are an expert logistics AI. You must prioritize SLA > Cost > Carbon. "
+            "Analyze the state and use tools to make re-routing decisions or alerts. "
+            "Your final response MUST include tool calls for book_carrier or send_alert, "
+            "along with log_decision. Do not execute them yourself, just return the tool calls."
+        )
+    )
+
     context = HumanMessage(content=f"Current State: {json.dumps(state, default=str)}")
     messages = [system_prompt, context]
-    
+
     tokens = state.get("gemini_tokens_used", 0)
-    
+
     # Simple ReAct loop (internal)
     async def _run_loop():
         nonlocal tokens
         for _ in range(8):
             response = await llm.ainvoke(messages)
-            
+
             # Count tokens (approx or via usage_metadata if available)
             if hasattr(response, "usage_metadata") and response.usage_metadata:
                 tokens += response.usage_metadata.get("total_tokens", 0)
-                
+
             messages.append(response)
-            
+
             if not response.tool_calls:
                 break
-                
+
             for tc in response.tool_calls:
                 tool_func = tool_map.get(tc["name"])
                 if tool_func:
@@ -227,75 +246,78 @@ async def gemini_select_node(state: AgentState) -> AgentState:
                         ToolMessage(content=json.dumps(tool_res), tool_call_id=tc["id"])
                     )
                 else:
-                    messages.append(
-                        ToolMessage(content="Tool not found", tool_call_id=tc["id"])
-                    )
-                    
+                    messages.append(ToolMessage(content="Tool not found", tool_call_id=tc["id"]))
+
         return response
 
     try:
+
         @gemini_breaker
         async def call_llm():
             return await asyncio.wait_for(_run_loop(), timeout=30.0)
-            
+
         final_response = await call_llm()
-        
+
         # Extract actions (tool calls) from the final response
         actions = []
         if isinstance(final_response, AIMessage) and final_response.tool_calls:
             actions = final_response.tool_calls
-            
+
         return {**state, "selected_actions": actions, "gemini_tokens_used": tokens}
     except Exception as exc:
         log.error("agent.gemini.error", error=str(exc))
         raise
 
+
 async def execute_actions_node(state: AgentState) -> AgentState:
     log.info(
-        "agent.node", 
-        node_name="execute_actions_node", 
-        trace_id=state["trace_id"], 
-        state_keys=list(state.keys())
+        "agent.node",
+        node_name="execute_actions_node",
+        trace_id=state["trace_id"],
+        state_keys=list(state.keys()),
     )
     cost_delta = 0.0
     # In reality, parse actual cost from the LLM outputs or candidate routes
     # For now, hardcode mock extraction
     for action in state["selected_actions"]:
         if action["name"] == "book_carrier":
-            cost_delta += 10000.0 # mock
-            
+            cost_delta += 10000.0  # mock
+
     return {**state, "total_cost_delta_inr": cost_delta}
+
 
 async def vrp_fallback_node(state: AgentState) -> AgentState:
     log.info(
-        "agent.node", 
-        node_name="vrp_fallback_node", 
-        trace_id=state["trace_id"], 
-        state_keys=list(state.keys())
+        "agent.node",
+        node_name="vrp_fallback_node",
+        trace_id=state["trace_id"],
+        state_keys=list(state.keys()),
     )
     return {**state, "fallback_used": True}
 
+
 async def human_escalate_node(state: AgentState) -> AgentState:
     log.info(
-        "agent.node", 
-        node_name="human_escalate_node", 
-        trace_id=state["trace_id"], 
-        state_keys=list(state.keys())
+        "agent.node",
+        node_name="human_escalate_node",
+        trace_id=state["trace_id"],
+        state_keys=list(state.keys()),
     )
     return {**state, "human_escalated": True}
 
+
 async def log_and_notify_node(state: AgentState) -> AgentState:
     log.info(
-        "agent.node", 
-        node_name="log_and_notify_node", 
-        trace_id=state["trace_id"], 
-        state_keys=list(state.keys())
+        "agent.node",
+        node_name="log_and_notify_node",
+        trace_id=state["trace_id"],
+        state_keys=list(state.keys()),
     )
     tenant_id = state.get("tenant_id", "default_tenant")
-    
+
     disruption = state["disruption_event"]
     actions_list = [tc["name"] for tc in state.get("selected_actions", [])]
-    
+
     payload = {
         "trace_id": state["trace_id"],
         "timestamp": datetime.now(UTC).isoformat(),
@@ -306,15 +328,15 @@ async def log_and_notify_node(state: AgentState) -> AgentState:
         # Readable fields for frontend dashboard
         "description": disruption.get("description", "Agent decision processed"),
         "severity": disruption.get("severity", "medium"),
-        "message": f"Decision agent processed {disruption.get('event_type', 'event')}: {', '.join(actions_list) if actions_list else 'monitoring'}",
+        "message": f"Decision agent processed {disruption.get('event_type', 'event')}: {', '.join(actions_list) if actions_list else 'monitoring'}",  # noqa: E501
         "shipment_id": disruption.get("shipment_id"),
     }
-    
+
     # Write to DB, publish WS update, send alerts
     await redis_client.publish(f"agent_log:{tenant_id}", json.dumps(payload))
     await redis_client.lpush(f"agent_log:{tenant_id}", json.dumps(payload))
     await redis_client.ltrim(f"agent_log:{tenant_id}", 0, 99)
-    
+
     # Also publish VRP results for Route Optimizer page
     vrp_payload = {
         "trace_id": state["trace_id"],
@@ -329,8 +351,9 @@ async def log_and_notify_node(state: AgentState) -> AgentState:
     }
     await redis_client.publish(f"vrp_results:{tenant_id}", json.dumps(vrp_payload))
     await redis_client.setex(f"vrp_results:{tenant_id}:latest", 3600, json.dumps(vrp_payload))
-    
+
     return state
+
 
 # ── 5. Conditional Edges ──
 def route_after_evaluate(state: AgentState) -> str:
@@ -339,10 +362,12 @@ def route_after_evaluate(state: AgentState) -> str:
         return "vrp_fallback"
     return "gemini_select"
 
+
 def route_after_gemini(state: AgentState) -> str:
     if state.get("total_cost_delta_inr", 0) > 150000:
         return "human_escalate"
     return "execute_actions"
+
 
 # ── 6. Build Graph ──
 builder = StateGraph(AgentState)
@@ -362,13 +387,13 @@ builder.add_edge("fetch_context", "evaluate_routes")
 builder.add_conditional_edges(
     "evaluate_routes",
     route_after_evaluate,
-    {"vrp_fallback": "vrp_fallback", "gemini_select": "gemini_select"}
+    {"vrp_fallback": "vrp_fallback", "gemini_select": "gemini_select"},
 )
 
 builder.add_conditional_edges(
     "gemini_select",
     route_after_gemini,
-    {"human_escalate": "human_escalate", "execute_actions": "execute_actions"}
+    {"human_escalate": "human_escalate", "execute_actions": "execute_actions"},
 )
 
 builder.add_edge("vrp_fallback", "log_and_notify")
@@ -378,6 +403,7 @@ builder.add_edge("log_and_notify", END)
 
 decision_graph = builder.compile()
 
+
 class DecisionAgent:
     def __init__(self):
         self.graph = decision_graph
@@ -386,7 +412,7 @@ class DecisionAgent:
     async def handle_disruption(self, raw_event: dict[str, Any]) -> None:
         initial_state = AgentState(
             disruption_event=raw_event,
-            tenant_id="t-123", # typically extracted or default
+            tenant_id="t-123",  # typically extracted or default
             affected_shipments=[],
             candidate_routes={},
             sla_at_risk=[],
@@ -397,7 +423,7 @@ class DecisionAgent:
             human_escalated=False,
             trace_id="",
             gemini_tokens_used=0,
-            total_cost_delta_inr=0.0
+            total_cost_delta_inr=0.0,
         )
         try:
             await self.graph.ainvoke(initial_state)
@@ -407,9 +433,9 @@ class DecisionAgent:
     async def subscribe_disruptions(self) -> None:
         pubsub = redis_client.pubsub()
         await pubsub.subscribe("disruptions")
-        
+
         semaphore = asyncio.Semaphore(5)
-        
+
         async def _process(msg: str):
             async with semaphore:
                 try:
@@ -417,7 +443,7 @@ class DecisionAgent:
                     await self.handle_disruption(event)
                 except Exception as e:
                     log.error("agent.subscriber.parse_error", error=str(e))
-                    
+
         log.info("decision_agent.subscriber.started")
         try:
             async for message in pubsub.listen():
@@ -433,7 +459,7 @@ class DecisionAgent:
     async def start(self) -> None:
         if self._subscriber_task is None:
             self._subscriber_task = asyncio.create_task(self.subscribe_disruptions())
-            
+
     async def stop(self) -> None:
         if self._subscriber_task:
             self._subscriber_task.cancel()

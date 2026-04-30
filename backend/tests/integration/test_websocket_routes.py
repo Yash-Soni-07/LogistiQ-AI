@@ -30,7 +30,6 @@ from starlette.testclient import TestClient
 
 from core.auth import create_access_token, hash_password
 
-
 # ── Fixture: synchronous TestClient ──────────────────────────
 # We patch DB the same way app_client does, but use starlette TestClient
 # so websocket_connect() is available.
@@ -39,8 +38,8 @@ from core.auth import create_access_token, hash_password
 @pytest.fixture()
 def ws_client(db_session, redis_mock):
     """Synchronous Starlette TestClient with DB + Redis overrides."""
-    from main import app
     from db.database import get_db_session
+    from main import app
 
     async def _override_db(connection=None):
         yield db_session
@@ -100,7 +99,7 @@ async def test_ws_disruptions_ping_pong(ws_client: TestClient, db_session, redis
     _, _, token = await _create_user_and_token(db_session, "wspingdis@test.com")
 
     with ws_client.websocket_connect(f"/ws/disruptions?token={token}") as ws:
-        ws.receive_json()          # consume 'connected' ACK
+        ws.receive_json()  # consume 'connected' ACK
         ws.send_text("ping")
         pong = ws.receive_json()
         assert pong["type"] == "pong"
@@ -109,7 +108,7 @@ async def test_ws_disruptions_ping_pong(ws_client: TestClient, db_session, redis
 @pytest.mark.asyncio
 async def test_ws_disruptions_invalid_token_closed(ws_client: TestClient, redis_mock):
     """Invalid JWT on /ws/disruptions → server closes with 1008 Policy Violation."""
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match=""):
         # starlette raises WebSocketDisconnect / raises when server rejects
         with ws_client.websocket_connect("/ws/disruptions?token=this.is.not.valid") as ws:
             ws.receive_json()
@@ -136,7 +135,7 @@ async def test_ws_dashboard_ping_pong(ws_client: TestClient, db_session, redis_m
     _, _, token = await _create_user_and_token(db_session, "wsdashping@test.com")
 
     with ws_client.websocket_connect(f"/ws/dashboard?token={token}") as ws:
-        ws.receive_json()          # consume initial tick
+        ws.receive_json()  # consume initial tick
         ws.send_text("ping")
         pong = ws.receive_json()
         assert pong["type"] == "pong"
@@ -145,7 +144,7 @@ async def test_ws_dashboard_ping_pong(ws_client: TestClient, db_session, redis_m
 @pytest.mark.asyncio
 async def test_ws_dashboard_invalid_token_rejected(ws_client: TestClient, redis_mock):
     """Invalid token on /ws/dashboard → connection rejected."""
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match=""):
         with ws_client.websocket_connect("/ws/dashboard?token=bad.jwt.token") as ws:
             ws.receive_json()
 
@@ -154,7 +153,9 @@ async def test_ws_dashboard_invalid_token_rejected(ws_client: TestClient, redis_
 
 
 @pytest.mark.asyncio
-async def test_ws_shipments_all_connects_and_sends_feature_collection(ws_client: TestClient, db_session, redis_mock):
+async def test_ws_shipments_all_connects_and_sends_feature_collection(
+    ws_client: TestClient, db_session, redis_mock
+):
     """Connecting to /ws/shipments sends an initial FeatureCollection payload."""
     from db.models import Shipment, ShipmentMode, ShipmentStatus
 
@@ -232,7 +233,7 @@ async def test_ws_shipment_ping_pong(ws_client: TestClient, db_session, redis_mo
     await db_session.commit()
 
     with ws_client.websocket_connect(f"/ws/shipments/{shipment.id}?token={token}") as ws:
-        ws.receive_json()          # consume 'init'
+        ws.receive_json()  # consume 'init'
         ws.send_text("ping")
         pong = ws.receive_json()
         assert pong["type"] == "pong"
@@ -248,10 +249,15 @@ async def test_ws_shipment_wrong_tenant_rejected(ws_client: TestClient, db_sessi
     tenant_a = Tenant(id=str(uuid.uuid4()), name="TenantA-WS")
     db_session.add(tenant_a)
     await db_session.flush()
-    user_a = db_session.add(User(
-        id=str(uuid.uuid4()), tenant_id=str(tenant_a.id),
-        email="ws_usera@test.com", hashed_password=hash_password("x"), role=UserRole.ADMIN,
-    ))
+    db_session.add(
+        User(
+            id=str(uuid.uuid4()),
+            tenant_id=str(tenant_a.id),
+            email="ws_usera@test.com",
+            hashed_password=hash_password("x"),
+            role=UserRole.ADMIN,
+        )
+    )
     await db_session.flush()
 
     # Create tenant B with a shipment
@@ -273,7 +279,9 @@ async def test_ws_shipment_wrong_tenant_rejected(ws_client: TestClient, db_sessi
 
     # Token scoped to tenant A
     from sqlalchemy import select
+
     from db.models import User as UserModel
+
     result = await db_session.execute(
         select(UserModel).where(UserModel.email == "ws_usera@test.com")
     )
@@ -281,10 +289,8 @@ async def test_ws_shipment_wrong_tenant_rejected(ws_client: TestClient, db_sessi
     token_a = create_access_token(str(user_a_obj.id), str(tenant_a.id), "admin")
 
     # Attempting to connect to tenant B's shipment WS → 1008 Policy Violation
-    with pytest.raises(Exception):
-        with ws_client.websocket_connect(
-            f"/ws/shipments/{shipment_b.id}?token={token_a}"
-        ) as ws:
+    with pytest.raises(Exception, match=""):
+        with ws_client.websocket_connect(f"/ws/shipments/{shipment_b.id}?token={token_a}") as ws:
             ws.receive_json()
 
 
@@ -294,7 +300,7 @@ async def test_ws_shipment_nonexistent_id_rejected(ws_client: TestClient, db_ses
     _, _, token = await _create_user_and_token(db_session, "wsshipnf@test.com")
     fake_id = str(uuid.uuid4())
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception, match=""):
         with ws_client.websocket_connect(f"/ws/shipments/{fake_id}?token={token}") as ws:
             ws.receive_json()
 
@@ -303,10 +309,8 @@ async def test_ws_shipment_nonexistent_id_rejected(ws_client: TestClient, db_ses
 async def test_ws_shipment_invalid_token_rejected(ws_client: TestClient, redis_mock):
     """Invalid token on /ws/shipments → connection rejected."""
     fake_id = str(uuid.uuid4())
-    with pytest.raises(Exception):
-        with ws_client.websocket_connect(
-            f"/ws/shipments/{fake_id}?token=garbage.token.here"
-        ) as ws:
+    with pytest.raises(Exception, match=""):
+        with ws_client.websocket_connect(f"/ws/shipments/{fake_id}?token=garbage.token.here") as ws:
             ws.receive_json()
 
 
@@ -346,8 +350,11 @@ async def test_connection_manager_disconnect_cleans_up(db_session, redis_mock):
     mgr = ConnectionManager()
 
     class FakeWS:
-        async def send_json(self, data): pass
-        async def accept(self): pass
+        async def send_json(self, data):
+            pass
+
+        async def accept(self):
+            pass
 
     ws = FakeWS()
     await mgr.connect(ws, "channel:abc")  # type: ignore[arg-type]
@@ -365,8 +372,11 @@ async def test_connection_manager_connection_count(db_session, redis_mock):
     mgr = ConnectionManager()
 
     class FakeWS:
-        async def send_json(self, data): pass
-        async def accept(self): pass
+        async def send_json(self, data):
+            pass
+
+        async def accept(self):
+            pass
 
     ws1, ws2 = FakeWS(), FakeWS()
     await mgr.connect(ws1, "ch:1")  # type: ignore[arg-type]

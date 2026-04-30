@@ -34,6 +34,7 @@ def _get_fcm_messaging():
     if _fcm_app is not None:
         try:
             import firebase_admin.messaging
+
             return firebase_admin.messaging
         except ImportError:
             return None
@@ -170,9 +171,7 @@ class NotifyMCPServer(MCPServer):
         ),
     }
 
-    async def execute_tool(
-        self, name: str, params: dict[str, Any], tenant_id: str | None
-    ) -> Any:
+    async def execute_tool(self, name: str, params: dict[str, Any], tenant_id: str | None) -> Any:
         match name:
             case "send_push_notification":
                 return (
@@ -307,9 +306,7 @@ class NotifyMCPServer(MCPServer):
             notification = messaging.Notification(title=title, body=body)
             # FCM supports up to 500 tokens per multicast
             batch = tokens[:500]
-            mm = messaging.MulticastMessage(
-                notification=notification, data=str_data, tokens=batch
-            )
+            mm = messaging.MulticastMessage(notification=notification, data=str_data, tokens=batch)
             resp = messaging.send_each_for_multicast(mm)
             log.info(
                 "notify.bulk.sent",
@@ -326,9 +323,7 @@ class NotifyMCPServer(MCPServer):
             log.warning("notify.bulk.failed", error=str(exc))
             return BulkNotifyResult(sent=0, failed=len(tokens), fallback_used=True)
 
-    async def _subscribe_to_topic(
-        self, tokens: list[str], topic: str
-    ) -> TopicSubscribeResult:
+    async def _subscribe_to_topic(self, tokens: list[str], topic: str) -> TopicSubscribeResult:
         messaging = _get_fcm_messaging()
 
         if messaging is None:

@@ -5,18 +5,21 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
-
 # ── /auth/register ────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_register_creates_tokens(app_client: AsyncClient):
-    resp = await app_client.post("/auth/register", json={
-        "email": "newuser@test.com",
-        "password": "StrongPass123!",
-        "company_name": "Acme Logistics",
-        "first_name": "John",
-        "last_name": "Doe",
-    })
+    resp = await app_client.post(
+        "/auth/register",
+        json={
+            "email": "newuser@test.com",
+            "password": "StrongPass123!",
+            "company_name": "Acme Logistics",
+            "first_name": "John",
+            "last_name": "Doe",
+        },
+    )
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert "access_token" in data
@@ -41,60 +44,80 @@ async def test_register_duplicate_email(app_client: AsyncClient):
 
 # ── /auth/login ───────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_login_valid_credentials(app_client: AsyncClient):
     # Register first
-    await app_client.post("/auth/register", json={
-        "email": "login@test.com",
-        "password": "MyPass123!",
-        "company_name": "Corp",
-        "first_name": "X",
-        "last_name": "Y",
-    })
-    resp = await app_client.post("/auth/login", json={
-        "email": "login@test.com",
-        "password": "MyPass123!",
-    })
+    await app_client.post(
+        "/auth/register",
+        json={
+            "email": "login@test.com",
+            "password": "MyPass123!",
+            "company_name": "Corp",
+            "first_name": "X",
+            "last_name": "Y",
+        },
+    )
+    resp = await app_client.post(
+        "/auth/login",
+        json={
+            "email": "login@test.com",
+            "password": "MyPass123!",
+        },
+    )
     assert resp.status_code == 200
     assert "access_token" in resp.json()
 
 
 @pytest.mark.asyncio
 async def test_login_wrong_password(app_client: AsyncClient):
-    await app_client.post("/auth/register", json={
-        "email": "badpw@test.com",
-        "password": "CorrectPw!",
-        "company_name": "Corp",
-        "first_name": "A",
-        "last_name": "B",
-    })
-    resp = await app_client.post("/auth/login", json={
-        "email": "badpw@test.com",
-        "password": "WrongPw!",
-    })
+    await app_client.post(
+        "/auth/register",
+        json={
+            "email": "badpw@test.com",
+            "password": "CorrectPw!",
+            "company_name": "Corp",
+            "first_name": "A",
+            "last_name": "B",
+        },
+    )
+    resp = await app_client.post(
+        "/auth/login",
+        json={
+            "email": "badpw@test.com",
+            "password": "WrongPw!",
+        },
+    )
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_login_unknown_email(app_client: AsyncClient):
-    resp = await app_client.post("/auth/login", json={
-        "email": "ghost@test.com",
-        "password": "anything",
-    })
+    resp = await app_client.post(
+        "/auth/login",
+        json={
+            "email": "ghost@test.com",
+            "password": "anything",
+        },
+    )
     assert resp.status_code == 401
 
 
 # ── /auth/me ──────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_get_me_authenticated(app_client: AsyncClient):
-    reg = await app_client.post("/auth/register", json={
-        "email": "me@test.com",
-        "password": "Pass123!",
-        "company_name": "Corp",
-        "first_name": "Me",
-        "last_name": "Test",
-    })
+    reg = await app_client.post(
+        "/auth/register",
+        json={
+            "email": "me@test.com",
+            "password": "Pass123!",
+            "company_name": "Corp",
+            "first_name": "Me",
+            "last_name": "Test",
+        },
+    )
     token = reg.json()["access_token"]
     resp = await app_client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
@@ -111,20 +134,27 @@ async def test_get_me_unauthenticated(app_client: AsyncClient):
 
 # ── /auth/logout ──────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_logout_succeeds(app_client: AsyncClient, redis_mock):
-    reg = await app_client.post("/auth/register", json={
-        "email": "logout@test.com",
-        "password": "Pass123!",
-        "company_name": "Corp",
-        "first_name": "L",
-        "last_name": "O",
-    })
+    reg = await app_client.post(
+        "/auth/register",
+        json={
+            "email": "logout@test.com",
+            "password": "Pass123!",
+            "company_name": "Corp",
+            "first_name": "L",
+            "last_name": "O",
+        },
+    )
     refresh_token = reg.json()["refresh_token"]
-    resp = await app_client.post("/auth/logout", json={
-        "access_token": reg.json()["access_token"],
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-    })
+    resp = await app_client.post(
+        "/auth/logout",
+        json={
+            "access_token": reg.json()["access_token"],
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+        },
+    )
     assert resp.status_code == 200
     assert "logged out" in resp.json()["message"].lower()

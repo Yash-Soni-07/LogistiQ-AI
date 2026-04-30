@@ -16,7 +16,7 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 log = structlog.get_logger(__name__)
 
@@ -29,14 +29,16 @@ JsonSchemaDict = dict[str, Any]
 
 class MCPToolSchema(BaseModel):
     """Describes a single MCP tool exposed by a server."""
+
     name: str
     description: str
-    parameters: JsonSchemaDict          # JSON Schema object for the parameters
+    parameters: JsonSchemaDict  # JSON Schema object for the parameters
     required: list[str] = []
 
 
 class MCPToolResult(BaseModel):
     """Successful response envelope."""
+
     result: Any
     tool_name: str
     trace_id: str
@@ -45,6 +47,7 @@ class MCPToolResult(BaseModel):
 
 class MCPToolError(BaseModel):
     """Error response envelope (also used internally as exception payload)."""
+
     tool_name: str
     reason: str
     status_code: int = 422
@@ -52,6 +55,7 @@ class MCPToolError(BaseModel):
 
 class MCPCallRequest(BaseModel):
     """Body for POST /call/{tool_name}."""
+
     params: dict[str, Any] = {}
     tenant_id: str | None = None
 
@@ -59,6 +63,7 @@ class MCPCallRequest(BaseModel):
 # ─────────────────────────────────────────────────────────────
 # Abstract base server
 # ─────────────────────────────────────────────────────────────
+
 
 class MCPServer(ABC):
     """

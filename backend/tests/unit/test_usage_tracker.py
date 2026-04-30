@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch
 
 from billing.usage_tracker import (
     _tier_limit,
@@ -14,13 +14,13 @@ from billing.usage_tracker import (
     record_event,
 )
 
-
 # ── record_event ──────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_record_event_increments_monthly_counter(redis_mock):
     await record_event("tenant-1", "mcp_call")
-    month = datetime.now(tz=timezone.utc).strftime("%Y-%m")
+    month = datetime.now(tz=UTC).strftime("%Y-%m")
     key = f"usage:tenant-1:mcp_call:{month}"
     value = await redis_mock.get(key)
     assert value == "1"
@@ -29,7 +29,7 @@ async def test_record_event_increments_monthly_counter(redis_mock):
 @pytest.mark.asyncio
 async def test_record_event_increments_by_quantity(redis_mock):
     await record_event("tenant-1", "mcp_call", quantity=5)
-    month = datetime.now(tz=timezone.utc).strftime("%Y-%m")
+    month = datetime.now(tz=UTC).strftime("%Y-%m")
     key = f"usage:tenant-1:mcp_call:{month}"
     value = await redis_mock.get(key)
     assert value == "5"
@@ -40,7 +40,7 @@ async def test_record_event_accumulates(redis_mock):
     await record_event("tenant-1", "shipment_created")
     await record_event("tenant-1", "shipment_created")
     await record_event("tenant-1", "shipment_created")
-    month = datetime.now(tz=timezone.utc).strftime("%Y-%m")
+    month = datetime.now(tz=UTC).strftime("%Y-%m")
     key = f"usage:tenant-1:shipment_created:{month}"
     value = await redis_client_get(redis_mock, key)
     assert int(value) == 3
@@ -53,8 +53,9 @@ async def redis_client_get(redis_mock, key):
 @pytest.mark.asyncio
 async def test_record_event_fire_and_forget_on_redis_error(monkeypatch):
     """Redis errors are swallowed — no exception propagated."""
+    from unittest.mock import AsyncMock, MagicMock
+
     from billing import usage_tracker
-    from unittest.mock import MagicMock, AsyncMock
 
     # Create a mock that raises when used as async context manager
     bad_pipeline = MagicMock()
@@ -65,8 +66,8 @@ async def test_record_event_fire_and_forget_on_redis_error(monkeypatch):
     await record_event("tenant-X", "mcp_call")
 
 
-
 # ── get_monthly_usage ─────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_get_monthly_usage_empty(redis_mock):
@@ -87,6 +88,7 @@ async def test_get_monthly_usage_after_events(redis_mock):
 
 # ── get_daily_breakdown ───────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_get_daily_breakdown_empty(redis_mock):
     result = await get_daily_breakdown("tenant-daily")
@@ -96,12 +98,13 @@ async def test_get_daily_breakdown_empty(redis_mock):
 @pytest.mark.asyncio
 async def test_get_daily_breakdown_after_event(redis_mock):
     await record_event("tenant-daily2", "alert_sent", quantity=7)
-    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    today = datetime.now(tz=UTC).strftime("%Y-%m-%d")
     result = await get_daily_breakdown("tenant-daily2", today)
     assert result.get("alert_sent", 0) == 7
 
 
 # ── check_limit ───────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_check_limit_under_cap(redis_mock):
@@ -115,15 +118,16 @@ async def test_check_limit_under_cap(redis_mock):
 async def test_check_limit_over_cap_still_allowed(redis_mock):
     """Soft cap — still allowed but overage is reported."""
     # Starter limit for mcp_call is 500
-    month = datetime.now(tz=timezone.utc).strftime("%Y-%m")
+    month = datetime.now(tz=UTC).strftime("%Y-%m")
     await redis_mock.set(f"usage:tenant-over:mcp_call:{month}", "600")
     result = await check_limit("tenant-over", "mcp_call", "starter")
-    assert result["allowed"] is True    # soft cap
+    assert result["allowed"] is True  # soft cap
     assert result["overage"] == 100
     assert result["current"] == 600
 
 
 # ── _tier_limit ───────────────────────────────────────────────
+
 
 def test_tier_limit_pro_is_10x_starter():
     starter = _tier_limit("mcp_call", "starter")
@@ -132,7 +136,6 @@ def test_tier_limit_pro_is_10x_starter():
 
 
 def test_tier_limit_enterprise_is_huge():
-    import sys
     enterprise = _tier_limit("mcp_call", "enterprise")
     assert enterprise > 1_000_000
 

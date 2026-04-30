@@ -51,13 +51,15 @@ target_metadata = Base.metadata
 
 # ── Helper: filter autogenerate to skip PostGIS system objects ─
 
-_POSTGIS_TABLES = frozenset({
-    "geometry_columns",
-    "geography_columns",
-    "spatial_ref_sys",
-    "raster_columns",
-    "raster_overviews",
-})
+_POSTGIS_TABLES = frozenset(
+    {
+        "geometry_columns",
+        "geography_columns",
+        "spatial_ref_sys",
+        "raster_columns",
+        "raster_overviews",
+    }
+)
 
 _POSTGIS_SCHEMAS = frozenset({"topology", "tiger", "tiger_data"})
 
@@ -126,7 +128,7 @@ async def run_async_migrations() -> None:
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
-        poolclass=pool.NullPool,    # migrations never need a connection pool
+        poolclass=pool.NullPool,  # migrations never need a connection pool
     )
 
     async with connectable.connect() as connection:

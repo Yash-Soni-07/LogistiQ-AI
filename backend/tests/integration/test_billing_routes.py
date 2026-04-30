@@ -7,10 +7,16 @@ from httpx import AsyncClient
 
 
 async def _admin_token(client: AsyncClient, email: str) -> str:
-    reg = await client.post("/auth/register", json={
-        "email": email, "password": "Pass123!",
-        "company_name": "Corp", "first_name": "B", "last_name": "L",
-    })
+    reg = await client.post(
+        "/auth/register",
+        json={
+            "email": email,
+            "password": "Pass123!",
+            "company_name": "Corp",
+            "first_name": "B",
+            "last_name": "L",
+        },
+    )
     return reg.json()["access_token"]
 
 
@@ -28,6 +34,7 @@ async def test_billing_status_no_subscription(app_client: AsyncClient, redis_moc
 async def test_subscribe_dev_mode_no_razorpay_key(app_client: AsyncClient, redis_mock, monkeypatch):
     """Without RAZORPAY_KEY_ID, subscribe completes in dev mode (no payment gateway)."""
     from core import config as cfg
+
     monkeypatch.setattr(cfg.settings, "RAZORPAY_KEY_ID", None)
     monkeypatch.setattr(cfg.settings, "RAZORPAY_KEY_SECRET", None)
 
@@ -45,6 +52,7 @@ async def test_subscribe_dev_mode_no_razorpay_key(app_client: AsyncClient, redis
 async def test_webhook_no_razorpay_secret_returns_400(app_client: AsyncClient, monkeypatch):
     """Webhook without RAZORPAY_WEBHOOK_SECRET should return 400."""
     from core import config as cfg
+
     monkeypatch.setattr(cfg.settings, "RAZORPAY_WEBHOOK_SECRET", None)
 
     resp = await app_client.post(
@@ -59,6 +67,7 @@ async def test_webhook_no_razorpay_secret_returns_400(app_client: AsyncClient, m
 async def test_webhook_invalid_signature_returns_400(app_client: AsyncClient, monkeypatch):
     """Valid Razorpay secret but bad HMAC signature → 400."""
     from core import config as cfg
+
     monkeypatch.setattr(cfg.settings, "RAZORPAY_WEBHOOK_SECRET", "test_webhook_secret")
 
     resp = await app_client.post(

@@ -14,8 +14,6 @@ Alternate-route finder uses a min-heap (heapq) for O(E log N) top-N selection.
 
 from __future__ import annotations
 
-import asyncio
-import heapq
 import math
 import time
 import uuid
@@ -53,28 +51,30 @@ class AsyncDB(Protocol):
 @dataclass
 class VRPNode:
     """A stop in the routing problem."""
+
     id: str
     lat: float
     lon: float
     demand_kg: float = 0.0
-    time_window_start: int = 0    # seconds from midnight
+    time_window_start: int = 0  # seconds from midnight
     time_window_end: int = 86400  # seconds from midnight
 
 
 @dataclass
 class VRPVehicle:
     """A vehicle/asset that performs deliveries."""
+
     id: str
     capacity_kg: float
     depot_node_id: str
-    mode: str = "road"            # road | rail | sea | air
+    mode: str = "road"  # road | rail | sea | air
 
 
 @dataclass
 class VRPInput:
     nodes: list[VRPNode]
     vehicles: list[VRPVehicle]
-    risk_matrix: np.ndarray       # shape (N, N) with risk [0..1] per edge
+    risk_matrix: np.ndarray  # shape (N, N) with risk [0..1] per edge
     carbon_mode: bool = False
 
 
@@ -108,6 +108,7 @@ class VRPSolution:
 @dataclass(order=True)
 class AlternateRoute:
     """A candidate alternate route for the min-heap comparator."""
+
     composite_cost: float = field(compare=True)
     route_id: str = field(compare=False)
     cost_inr: float = field(compare=False)
@@ -144,8 +145,8 @@ MODE_SPEED_KMH: dict[str, float] = {
     "air": 800.0,
 }
 
-_RISK_PENALTY = 500.0    # INR per unit risk per km
-_CARBON_PENALTY = 50.0   # INR per kg CO₂ added when carbon_mode=True
+_RISK_PENALTY = 500.0  # INR per unit risk per km
+_CARBON_PENALTY = 50.0  # INR per kg CO₂ added when carbon_mode=True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -154,16 +155,14 @@ _CARBON_PENALTY = 50.0   # INR per kg CO₂ added when carbon_mode=True
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371.0
+    earth_radius_km = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     )
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return earth_radius_km * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -194,14 +193,12 @@ async def _distance_matrix_km(nodes: list[VRPNode]) -> np.ndarray:
     for i in range(n):
         for j in range(n):
             if i != j:
-                mat[i, j] = _haversine_km(
-                    nodes[i].lat, nodes[i].lon, nodes[j].lat, nodes[j].lon
-                )
+                mat[i, j] = _haversine_km(nodes[i].lat, nodes[i].lon, nodes[j].lat, nodes[j].lon)
 
     try:
         await redis_client.setex(cache_key, 3600, json.dumps(mat.tolist()))
     except Exception:  # noqa: BLE001
-        pass
+        log.debug("vrp_solver.dist_matrix_cache_write_suppressed")
 
     return mat
 
@@ -230,9 +227,7 @@ async def build_cost_matrix(
     co2_per_tkm = MODE_CO2_PER_TONNE_KM.get(mode, MODE_CO2_PER_TONNE_KM["road"])
 
     # Average demand per node (tonnes) for CO₂ estimate
-    avg_demand_t = max(
-        sum(nd.demand_kg for nd in nodes) / (1000.0 * max(len(nodes), 1)), 0.001
-    )
+    avg_demand_t = max(sum(nd.demand_kg for nd in nodes) / (1000.0 * max(len(nodes), 1)), 0.001)
 
     cost = dist_km * cost_per_km + risk_matrix * _RISK_PENALTY
 
@@ -322,8 +317,7 @@ def solve(vrp_input: VRPInput) -> VRPSolution:
     # Identify depot indices
     node_id_to_idx: dict[str, int] = {nd.id: i for i, nd in enumerate(nodes)}
     depot_indices: dict[str, int] = {
-        veh.depot_node_id: node_id_to_idx.get(veh.depot_node_id, 0)
-        for veh in vehicles
+        veh.depot_node_id: node_id_to_idx.get(veh.depot_node_id, 0) for veh in vehicles
     }
 
     # Primary mode (first vehicle's mode as representative)
@@ -342,14 +336,12 @@ def solve(vrp_input: VRPInput) -> VRPSolution:
 
     cost_mat = dist_km * cost_per_km + risk_matrix * _RISK_PENALTY
     if vrp_input.carbon_mode:
-        avg_demand_t = max(
-            sum(nd.demand_kg for nd in nodes) / (1000.0 * n), 0.001
-        )
+        avg_demand_t = max(sum(nd.demand_kg for nd in nodes) / (1000.0 * n), 0.001)
         cost_mat += dist_km * co2_per_tkm * avg_demand_t * _CARBON_PENALTY
 
     # OR-Tools expects integer costs — scale by 10 for sub-INR precision
-    _SCALE = 10
-    int_cost_mat = (cost_mat * _SCALE).astype(int).tolist()
+    int_scale = 10
+    int_cost_mat = (cost_mat * int_scale).astype(int).tolist()
 
     # ── OR-Tools setup ────────────────────────────────────────
     num_vehicles = len(vehicles)
@@ -374,15 +366,13 @@ def solve(vrp_input: VRPInput) -> VRPSolution:
 
     demand_cb_idx = routing.RegisterUnaryTransitCallback(demand_callback)
     capacities = [int(v.capacity_kg) for v in vehicles]
-    routing.AddDimensionWithVehicleCapacity(
-        demand_cb_idx, 0, capacities, True, "Capacity"
-    )
+    routing.AddDimensionWithVehicleCapacity(demand_cb_idx, 0, capacities, True, "Capacity")
 
     # Time-window dimension (seconds)
     routing.AddDimension(
         transit_callback_index,
-        3600,      # max waiting time (slack)
-        172800,    # horizon (2 days in seconds)
+        3600,  # max waiting time (slack)
+        172800,  # horizon (2 days in seconds)
         False,
         "Time",
     )
@@ -409,9 +399,7 @@ def solve(vrp_input: VRPInput) -> VRPSolution:
     search_params = pywrapcp.DefaultRoutingSearchParameters()
 
     if n > 50:
-        search_params.first_solution_strategy = (
-            routing_enums_pb2.FirstSolutionStrategy.SAVINGS
-        )
+        search_params.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.SAVINGS
     else:
         search_params.first_solution_strategy = (
             routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
@@ -486,7 +474,6 @@ def _extract_routes(
         while not routing.IsEnd(index):
             node_idx = manager.IndexToNode(index)
             steps.append(RouteStep(node_id=nodes[node_idx].id))
-            prev_index = index
             index = solution.Value(routing.NextVar(index))
             if not routing.IsEnd(index):
                 ni = manager.IndexToNode(index)
@@ -498,13 +485,10 @@ def _extract_routes(
         # Include final depot step
         steps.append(RouteStep(node_id=nodes[manager.IndexToNode(index)].id))
 
-        total_demand_t = sum(
-            nodes[manager.IndexToNode(routing.NodeToIndex(i) if False else 0)].demand_kg
-            for _ in []
-        ) / 1000.0  # simplified — real impl traverses the route
-
-        co2 = total_dist * co2_per_tkm * max(
-            sum(nd.demand_kg for nd in nodes) / (1000.0 * max(len(nodes), 1)), 0.001
+        co2 = (
+            total_dist
+            * co2_per_tkm
+            * max(sum(nd.demand_kg for nd in nodes) / (1000.0 * max(len(nodes), 1)), 0.001)
         )
         routes.append(
             VehicleRoute(
@@ -527,15 +511,12 @@ def _routes_from_index_lists(
     co2_per_tkm: float,
 ) -> list[VehicleRoute]:
     routes: list[VehicleRoute] = []
-    avg_demand_t = max(
-        sum(nd.demand_kg for nd in nodes) / (1000.0 * max(len(nodes), 1)), 0.001
-    )
+    avg_demand_t = max(sum(nd.demand_kg for nd in nodes) / (1000.0 * max(len(nodes), 1)), 0.001)
     for v_idx, vehicle in enumerate(vehicles):
         idx_list = index_lists[v_idx] if v_idx < len(index_lists) else []
         steps = [RouteStep(node_id=nodes[i].id) for i in idx_list]
         total_dist = sum(
-            float(dist_km[idx_list[k], idx_list[k + 1]])
-            for k in range(len(idx_list) - 1)
+            float(dist_km[idx_list[k], idx_list[k + 1]]) for k in range(len(idx_list) - 1)
         )
         routes.append(
             VehicleRoute(
@@ -635,7 +616,7 @@ async def find_alternates(
             if risk_raw:
                 risk = max(0.0, min(1.0, float(risk_raw)))
         except Exception:  # noqa: BLE001
-            pass
+            log.debug("find_alternates.risk_fetch_suppressed", route_id=route_id)
 
         cost_per_km = MODE_COST_PER_KM.get(mode, MODE_COST_PER_KM["road"])
         co2_per_tkm = MODE_CO2_PER_TONNE_KM.get(mode, MODE_CO2_PER_TONNE_KM["road"])

@@ -105,8 +105,14 @@ class RoutingMCPServer(MCPServer):
             parameters={
                 "type": "object",
                 "properties": {
-                    "origin_id": {"type": "string", "description": "Origin location ID or 'lat,lon'"},
-                    "dest_id": {"type": "string", "description": "Destination location ID or 'lat,lon'"},
+                    "origin_id": {
+                        "type": "string",
+                        "description": "Origin location ID or 'lat,lon'",
+                    },
+                    "dest_id": {
+                        "type": "string",
+                        "description": "Destination location ID or 'lat,lon'",
+                    },
                     "avoid_segments": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -178,9 +184,7 @@ class RoutingMCPServer(MCPServer):
         ),
     }
 
-    async def execute_tool(
-        self, name: str, params: dict[str, Any], tenant_id: str | None
-    ) -> Any:
+    async def execute_tool(self, name: str, params: dict[str, Any], tenant_id: str | None) -> Any:
         try:
             match name:
                 case "get_route":
@@ -215,13 +219,37 @@ class RoutingMCPServer(MCPServer):
             log.error("mcp.routing.tool_failed", tool=name, error=str(exc))
             # Safe fallbacks per tool
             if name == "get_route":
-                return RouteResult(route_id="fallback_route", cost_inr=0.0, eta_h=0.0, risk_score=0.0, co2_kg=0.0, mode="road", geometry={"type": "LineString", "coordinates": []}, distance_km=0.0, duration_h=0.0).model_dump()
+                return RouteResult(
+                    route_id="fallback_route",
+                    cost_inr=0.0,
+                    eta_h=0.0,
+                    risk_score=0.0,
+                    co2_kg=0.0,
+                    mode="road",
+                    geometry={"type": "LineString", "coordinates": []},
+                    distance_km=0.0,
+                    duration_h=0.0,
+                ).model_dump()
             elif name in ("get_alternatives", "get_multimodal_options"):
                 return []
             elif name == "get_eta":
-                return ETAResult(shipment_id=params.get("shipment_id", ""), current_lat=0.0, current_lon=0.0, status="delayed", delay_h=0.0, new_eta_utc="", confidence=0.0).model_dump()
+                return ETAResult(
+                    shipment_id=params.get("shipment_id", ""),
+                    current_lat=0.0,
+                    current_lon=0.0,
+                    status="delayed",
+                    delay_h=0.0,
+                    new_eta_utc="",
+                    confidence=0.0,
+                ).model_dump()
             elif name == "check_route_risk":
-                return RouteRiskResult(route_id=params.get("route_id", ""), risk_score=0.0, max_risk_segment="", risk_factors={}, is_viable=True).model_dump()
+                return RouteRiskResult(
+                    route_id=params.get("route_id", ""),
+                    risk_score=0.0,
+                    max_risk_segment="",
+                    risk_factors={},
+                    is_viable=True,
+                ).model_dump()
             return {}
 
     # ── Helpers ───────────────────────────────────────────────
@@ -308,9 +336,7 @@ class RoutingMCPServer(MCPServer):
             source="ORS HGV",
         )
 
-    async def _get_alternatives(
-        self, blocked_segment_id: str, n: int
-    ) -> list[AlternativeRoute]:
+    async def _get_alternatives(self, blocked_segment_id: str, n: int) -> list[AlternativeRoute]:
         """
         Returns placeholder alternative routes. In production, query OSRM
         /route with alternatives=true and the segment excluded.
