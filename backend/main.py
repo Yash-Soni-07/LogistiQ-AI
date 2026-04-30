@@ -130,18 +130,23 @@ app = FastAPI(
 
 
 # ─────────────────────────────────────────────────────────────
-# Middleware  (order: first added = outermost layer)
+# Middleware (Production Order)
 # ─────────────────────────────────────────────────────────────
 
+# 1. Add TenantMiddleware FIRST (Inner layer)
+# This will be the first to process the request after it passes security
+app.add_middleware(TenantMiddleware)
+
+# 2. Add CORSMiddleware LAST (Outermost layer)
+# This ensures it wraps EVERYTHING, including TenantMiddleware and any 
+# global exception handlers, so headers are ALWAYS sent back.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=settings.ALLOWED_ORIGINS.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(TenantMiddleware)
-
 
 # ─────────────────────────────────────────────────────────────
 # Prometheus

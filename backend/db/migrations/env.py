@@ -39,7 +39,7 @@ config = context.config
 
 # Override the sqlalchemy.url from alembic.ini with the real DATABASE_URL
 # so we never need to keep two copies in sync.
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", str(settings.DATABASE_URL).replace("%", "%%"))
 
 # Interpret the config file for Python logging setup
 if config.config_file_name is not None:

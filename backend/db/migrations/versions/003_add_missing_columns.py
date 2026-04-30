@@ -211,6 +211,10 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
+    # --- NEW FIX: Destroy the RLS policy before dropping the column ---
+    op.execute("DROP POLICY IF EXISTS tenant_isolation ON news_alerts;")
+    op.execute("ALTER TABLE news_alerts DISABLE ROW LEVEL SECURITY;")
+
     op.execute("""
         DO $$ BEGIN
             IF EXISTS (SELECT 1 FROM information_schema.columns
@@ -219,6 +223,7 @@ def upgrade() -> None:
             END IF;
         END $$;
     """)
+    
     # Add global news_alerts spec columns
     news_alert_cols = [
         ("source",             "VARCHAR(255)"),

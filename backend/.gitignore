@@ -10,3 +10,8 @@ wheels/
 .venv
 .env
 .env.example
+
+env.yaml
+
+env.yaml
+.env*
