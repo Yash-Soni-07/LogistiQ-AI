@@ -89,10 +89,20 @@ async def db_session(db_engine) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest_asyncio.fixture(scope="function")
 async def redis_mock(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
-    """Replace the global redis_client with an in-memory FakeRedis instance."""
+    """Replace the global redis_client with an in-memory FakeRedis instance.
+
+    Patches every module that bound redis_client at import time so that
+    WebSocket routes (which use pubsub / smembers) don't touch the real
+    Redis connection pool from a different event loop.
+    """
     fake = FakeRedis(decode_responses=True)
-    # Patch every module that imported redis_client at load time
+
+    # Core + infrastructure modules
     import agents.gdelt_scanner as gs
+    import api.analytics_routes as analytics
+    import api.auth_routes as auth
+    import api.simulation_routes as sim
+    import api.websocket_routes as ws
     import billing.usage_tracker as ut
     import core.redis as _cr
     import ml.risk_scorer as rs
@@ -101,6 +111,13 @@ async def redis_mock(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     monkeypatch.setattr(ut, "redis_client", fake)
     monkeypatch.setattr(gs, "redis_client", fake)
     monkeypatch.setattr(rs, "redis_client", fake)
+    # API route modules — prevent 'Queue bound to different event loop'
+    # errors when TestClient runs WS handlers in a background thread
+    monkeypatch.setattr(auth, "redis_client", fake)
+    monkeypatch.setattr(ws, "redis_client", fake)
+    monkeypatch.setattr(sim, "redis_client", fake)
+    monkeypatch.setattr(analytics, "redis_client", fake)
+
     yield fake
     await fake.aclose()
 
