@@ -309,7 +309,7 @@ async def _prepare_simulation_shipments(
             seeded_count=seeded_count,
         )
 
-    selected = rows[:_DEMO_TARGET]
+    selected = rows[:_demo_target]
     simulations: list[SimulatedShipment] = []
 
     for idx, shipment in enumerate(selected):
