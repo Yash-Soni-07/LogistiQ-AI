@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import AuthBackground from '@/components/auth/AuthBackground';
+import { useServerWarmup } from '@/hooks/useServerWarmup';
 
 export default function RegisterPage() {
   const navigate = useNavigate();
@@ -17,6 +18,12 @@ export default function RegisterPage() {
   React.useEffect(() => {
     if (isAuthenticated) navigate('/dashboard', { replace: true });
   }, [isAuthenticated, navigate]);
+
+  // ── Server warm-up (Cloud Run cold-start mitigation) ──────────────────────
+  const apiUrl = (import.meta.env.VITE_API_URL as string | undefined) ?? '';
+  const { warmupStatus } = useServerWarmup(apiUrl);
+  const isWaking = warmupStatus === 'waking';
+  // ─────────────────────────────────────────────────────────────────────────
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -193,16 +200,36 @@ export default function RegisterPage() {
 
             <Button 
               type="submit" 
-              className="w-full bg-[var(--lq-cyan)] hover:bg-[var(--lq-cyan)]/90 text-white mt-6 h-11"
-              disabled={loading || !formData.email || !formData.password || !formData.firstName || !formData.lastName || !formData.companyName}
+              className="w-full bg-[var(--lq-cyan)] hover:bg-[var(--lq-cyan)]/90 text-white mt-6 h-11 transition-opacity duration-300"
+              disabled={loading || isWaking || !formData.email || !formData.password || !formData.firstName || !formData.lastName || !formData.companyName}
+              style={{ opacity: isWaking ? 0.6 : 1 }}
             >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : (
+              {loading ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : isWaking ? (
+                <span className="text-sm">⏳ Waking secure servers (approx 5s)...</span>
+              ) : (
                 <>
                   Initialize Workspace <ArrowRight size={16} className="ml-2" />
                 </>
               )}
             </Button>
           </form>
+
+          {/* Server warm-up status indicator */}
+          <div className="mt-4 flex items-center justify-center gap-2 min-h-[20px]">
+            {isWaking && (
+              <p className="text-xs text-[var(--lq-text-dim)] flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                Establishing secure connection...
+              </p>
+            )}
+            {warmupStatus === 'connected' && (
+              <p className="text-xs text-emerald-400 flex items-center gap-1.5">
+                ✅ Securely connected
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
