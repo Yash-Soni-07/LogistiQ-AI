@@ -55,7 +55,7 @@ Logistics disruptions account for billions of dollars in lost economic value and
 
 Most enterprise logistics platforms (like legacy TMS systems or modern visibility tools) are fundamentally **reactive**—they alert operators *after* a shipment is delayed. LogistiQ AI's Unique Selling Proposition (USP) is transitioning supply chains from reactive tracking to **autonomous predictive resilience**. 
 
-Instead of just putting a dot on a map, LogistiQ AI leverages multimodal LangGraph agents (powered by Google Gemini) and live geospatial APIs to autonomously predict threats, score risks, calculate VRP (Vehicle Routing Problem) detours, and dispatch reroutes *before* the hazard impacts the fleet.
+Instead of just putting a dot on a map, LogistiQ AI leverages multimodal LangGraph agents (powered by Google Gemini) and live geospatial APIs to autonomously predict threats, score risks, calculate VRP (Vehicle Routing Problem) detours, and dispatch reroutes *before* the hazard impacts the fleet, and many more such solutions.
 
 ### Disruptions Neutralized
 
