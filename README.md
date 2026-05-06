@@ -16,7 +16,7 @@ This README reflects the current repository as audited from source files, config
 - [Frontend Deep Dive](#frontend-deep-dive)
 - [Data Model](#data-model)
 - [Environment Variables](#environment-variables)
-- [Public Repo Setup Guide](#public-repo-setup-guide)
+- [Setup Guide](#setup-guide)
 - [Local Development](#local-development)
 - [Docker Workflows](#docker-workflows)
 - [Testing And Quality](#testing-and-quality)
@@ -458,9 +458,9 @@ Never commit real `.env` files. Only commit `.env.example` templates with placeh
 
 `VITE_*` values are bundled into frontend JavaScript and are public by design. Do not place private credentials in frontend env variables.
 
-## Public Repo Setup Guide
+## Setup Guide
 
-This repository is safe to share publicly when real local environment files are kept out of Git. The project includes template files that let another developer recreate the app on their own machine without needing your private credentials.
+The project includes template files that let another developer recreate the app on their own machine without needing your private credentials.
 
 Files that should be committed:
 
