@@ -140,9 +140,7 @@ async def login(data: schemas.UserLogin, db: AsyncSession = Depends(get_db_sessi
 
 
 @router.post("/google", response_model=schemas.Token, status_code=status.HTTP_200_OK)
-async def google_auth(
-    data: schemas.GoogleAuthRequest, db: AsyncSession = Depends(get_db_session)
-):
+async def google_auth(data: schemas.GoogleAuthRequest, db: AsyncSession = Depends(get_db_session)):
     """
     Exchange a Google OAuth access_token for a LogistiQ JWT.
 
@@ -190,8 +188,11 @@ async def google_auth(
         logger.info("Google OAuth login", email=google_email, user_id=str(user.id))
         access_token = create_access_token(user.id, user.tenant_id, user.role.value)
         refresh_token = create_refresh_token(user.id, user.tenant_id)
-        return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
-
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+        }
     # ── New user: create tenant + admin user + seed demo data ────────────────
     try:
         company = data.company_name or f"{google_name}'s Workspace"
@@ -233,8 +234,11 @@ async def google_auth(
         logger.info("Google OAuth registration", email=google_email, tenant_id=str(tenant.id))
         access_token = create_access_token(user.id, tenant.id, user.role.value)
         refresh_token = create_refresh_token(user.id, tenant.id)
-        return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
-
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+        }
     except Exception as exc:
         await db.rollback()
         logger.error("Google OAuth registration failed", error=str(exc))

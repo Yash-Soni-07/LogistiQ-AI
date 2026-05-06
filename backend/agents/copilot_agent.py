@@ -355,11 +355,12 @@ async def _handle_with_gemini(question: str, tenant_id: str) -> CopilotResponse:
             contents=question,
             config=types.GenerateContentConfig(
                 system_instruction=(
-                    "You are LogistiQ AI Copilot — an expert assistant for Indian logistics operators. "
-                    "Answer concisely in plain English. Use markdown for clarity. "
-                    "If you need real-time data, say so — you don't have live tool access in this mode."
+                    "You are LogistiQ AI Copilot — an expert assistant for Indian logistics "
+                    "operators. Answer concisely in plain English. Use markdown for clarity. "
+                    "If you need real-time data, say so — you don't have live tool access "
+                    "in this mode."
                 )
-            )
+            ),
         )
         return CopilotResponse(
             answer=resp.text.strip(),

@@ -208,25 +208,33 @@ async def ws_shipments_all(
     # 1b. If a live simulation is running, send a full tick so FreightMap gets
     # correct route_path immediately (avoids hydrateRoadPaths overwriting alt routes).
     try:
-        from api.simulation_routes import _active_simulations, _active_fire  # local import to avoid circular
+        from api.simulation_routes import (  # local import to avoid circular
+            _active_fire,
+            _active_simulations,
+        )
+
         sims = _active_simulations.get(tenant_id, [])
         if sims:
-            await ws.send_json({
-                "type":     "simulation_tick",
-                "shipments": [s.payload(slim=False) for s in sims],  # full paths on reconnect
-                "ts":       datetime.now(UTC).isoformat(),
-            })
+            await ws.send_json(
+                {
+                    "type": "simulation_tick",
+                    "shipments": [s.payload(slim=False) for s in sims],  # full paths on reconnect
+                    "ts": datetime.now(UTC).isoformat(),
+                }
+            )
             # Re-send fire_event if a fire is active so map keeps the fire marker
             fire = _active_fire.get(tenant_id)
             if fire:
-                await ws.send_json({
-                    "type":        "fire_event",
-                    "fire_lon":    fire["fire_lon"],
-                    "fire_lat":    fire["fire_lat"],
-                    "shipment_id": fire["shipment_id"],
-                    "description": f"Active fire disruption — {fire.get('event_id', '')}",
-                    "event_id":    fire.get("event_id", ""),
-                })
+                await ws.send_json(
+                    {
+                        "type": "fire_event",
+                        "fire_lon": fire["fire_lon"],
+                        "fire_lat": fire["fire_lat"],
+                        "shipment_id": fire["shipment_id"],
+                        "description": f"Active fire disruption — {fire.get('event_id', '')}",
+                        "event_id": fire.get("event_id", ""),
+                    }
+                )
     except Exception as e:
         log.warning("ws.shipments.sim_state_failed", error=str(e))
 
@@ -477,15 +485,18 @@ async def ws_copilot(
         else:
             from google import genai
             from google.genai import types
-            
+
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
-            
+
             response_stream = await client.aio.models.generate_content_stream(
                 model=getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash"),
                 contents=question,
                 config=types.GenerateContentConfig(
-                    system_instruction="You are LogistiQ AI Copilot — an expert assistant for Indian logistics operators. Answer concisely in plain English."
-                )
+                    system_instruction=(
+                        "You are LogistiQ AI Copilot — an expert assistant for Indian "
+                        "logistics operators. Answer concisely in plain English."
+                    )
+                ),
             )
             async for chunk in response_stream:
                 if chunk.text:
