@@ -50,6 +50,12 @@ class UserLogin(BaseModel):
     password: str
 
 
+class GoogleAuthRequest(BaseModel):
+    """Payload for POST /auth/google — frontend sends the Google OAuth access_token."""
+    access_token: str
+    company_name: str | None = None  # Used for tenant creation on first Google sign-up
+
+
 # ─────────────────────────────────────────────────────────────
 # Tenant & User
 # ─────────────────────────────────────────────────────────────

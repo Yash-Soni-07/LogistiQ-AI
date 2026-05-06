@@ -2,9 +2,10 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Clock, CornerUpRight, Search, Activity,
-  CheckCircle2, ShieldAlert, Loader2, MapPin, Shield,
+  CheckCircle2, ShieldAlert, Loader2, MapPin, Shield, Flame, X,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 // ── Types (aligned with backend DisruptionRead schema) ──
 
@@ -95,6 +96,23 @@ export default function RiskPage() {
     },
   });
 
+  // ── Live WS: agent-log fires immediate refetch on critical/fire events ──
+  const [liveFireAlert, setLiveFireAlert] = useState<{ desc: string; shipmentId?: string } | null>(null);
+
+  useWebSocket('agent-log', (msg: any) => {
+    const evType = msg?.disruption?.event_type || msg?.event_type || '';
+    const severity = msg?.disruption?.severity || msg?.severity || '';
+    if (evType === 'fire' || severity === 'critical') {
+      // Force-refetch disruptions immediately so the list updates
+      queryClient.invalidateQueries({ queryKey: ['disruptions'] });
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'summary'] });
+      setLiveFireAlert({
+        desc: msg?.disruption?.description || msg?.description || 'Fire disruption detected on road shipment.',
+        shipmentId: msg?.disruption?.shipment_id || msg?.shipment_id,
+      });
+    }
+  });
+
   const disruptions = disruptionsData?.items ?? [];
 
   // Filter & sort
@@ -145,6 +163,24 @@ export default function RiskPage() {
           </div>
         ))}
       </div>
+
+      {/* Live Fire Alert Banner — visible only when fire simulation active */}
+      {liveFireAlert && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-red-500/10 border border-red-500/25 rounded-xl">
+          <span className="relative flex h-3 w-3 shrink-0">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+          </span>
+          <Flame size={14} className="text-red-400 shrink-0" />
+          <p className="flex-1 text-xs text-red-300 font-medium truncate">
+            <span className="font-bold text-red-400">LIVE — Fire Disruption:</span> {liveFireAlert.desc}
+          </p>
+          <a href="/routes" className="text-[11px] font-semibold text-[var(--lq-cyan)] hover:underline shrink-0">View Routes →</a>
+          <button onClick={() => setLiveFireAlert(null)} className="text-[var(--lq-text-dim)] hover:text-[var(--lq-text-bright)] shrink-0">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Main Content */}
       <div className="flex flex-1 gap-5 min-h-0">

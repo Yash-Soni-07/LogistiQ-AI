@@ -3,16 +3,24 @@ import axios from "axios";
 import { Navigation } from "lucide-react";
 import { Map as MapGL, type MapRef } from "react-map-gl/maplibre";
 import { MapboxOverlay } from "@deck.gl/mapbox";
-import { buildFreightLayers, buildFireLayer, type FireMarker, type FreightMode, type FreightRenderPoint } from "./layerConfigs";
+import { buildFreightLayers, buildFireLayer, buildVRPLayers, type FireMarker, type FreightMode, type FreightRenderPoint, type VRPOverlay } from "./layerConfigs";
 import { buildFallbackRoutePath, parseRoutingGeometryCoordinates } from "./routeGeometry";
 import { resolveCityCoords, type CoordinatePair } from "@/lib/cities";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useAuthStore } from "@/stores/auth.store";
+import { useSimulationStore } from "@/stores/simulation.store";
+import { useThemeStore } from "@/stores/theme.store";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-const MAP_STYLE =
-  (import.meta.env.VITE_STADIA_MAPS_STYLE as string | undefined) ??
-  "https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json";
+// ── Stadia Maps style URLs ────────────────────────────────────────────────────
+// VITE_STADIA_MAPS_STYLE is a full dark-mode URL that may include ?api_key=...
+// We extract just the key and apply it to BOTH dark and light style URLs so
+// the theme toggle works correctly while still authenticating with Stadia.
+const _stadiaEnv = (import.meta.env.VITE_STADIA_MAPS_STYLE as string | undefined) ?? "";
+const _keyMatch  = _stadiaEnv.match(/[?&]api_key=([^&]+)/);
+const _keyParam  = _keyMatch ? `?api_key=${_keyMatch[1]}` : "";
+const STADIA_DARK  = `https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json${_keyParam}`;
+const STADIA_LIGHT = `https://tiles.stadiamaps.com/styles/alidade_smooth.json${_keyParam}`;
 
 interface SimulationShipmentPayload {
   shipment_id?: string;
@@ -132,28 +140,68 @@ function resolveOriginCoords(payload: SimulationShipmentPayload): CoordinatePair
 
 export default function FreightMap() {
   const [points, setPoints] = useState<FreightRenderPoint[]>([]);
+  const [runId, setRunId] = useState(0);
   const [fireMarkers, setFireMarkers] = useState<FireMarker[]>([]);
+  const [vrpOverlay, setVrpOverlay] = useState<VRPOverlay | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const mapRef = useRef<MapRef | null>(null);
   const overlayRef = useRef<MapboxOverlay | null>(null);
   const routeRequestInFlight = useRef<Set<string>>(new Set());
   const backendOrigin = useMemo(() => getBackendOrigin(), []);
 
+  // ── Map style: isDark from Zustand (set by ThemeToggle) drives tile selection ──
+  const { isDark } = useThemeStore();
+  const mapStyle = isDark ? STADIA_DARK : STADIA_LIGHT;
+
+  // Filter visible points by user-selected transport modes
+  const { visibleModes } = useSimulationStore();
+  const visiblePoints = useMemo(
+    () => points.filter((p) => visibleModes.includes(p.mode as any)),
+    [points, visibleModes],
+  );
+
   const layers = useMemo(
-    () => [...buildFreightLayers(points), ...buildFireLayer(fireMarkers)],
-    [points, fireMarkers],
+    () => [
+      ...buildFreightLayers(visiblePoints, runId),
+      ...buildFireLayer(fireMarkers),
+      ...buildVRPLayers(vrpOverlay, visiblePoints),
+    ],
+    [visiblePoints, fireMarkers, vrpOverlay, runId],
   );
 
   const modeCounts = useMemo(() => {
     const counts = { road: 0, air: 0, sea: 0, rail: 0 };
-    for (const point of points) {
+    for (const point of visiblePoints) {
       if (point.mode === "air") counts.air += 1;
       else if (point.mode === "sea") counts.sea += 1;
       else if (point.mode === "rail") counts.rail += 1;
       else counts.road += 1;
     }
     return counts;
-  }, [points]);
+  }, [visiblePoints]);
+
+  // ── VRP results: draw alternate routes (green) + blocked segment (red) on map ──
+  useWebSocket("vrp-results", (msg: unknown) => {
+    if (!msg || typeof msg !== "object") return;
+    const m = msg as Record<string, unknown>;
+    if (m.type === "pong" || m.type === "heartbeat") return;
+    if (m.disruption || m.alternate_routes) {
+      const disruption = m.disruption as Record<string, unknown>;
+      const altRoutes = m.alternate_routes as Record<string, unknown[]>;
+      const routes = Object.values(altRoutes ?? {}).flat() as any[];
+      setVrpOverlay({
+        affectedShipmentId: (disruption?.shipment_id as string) ?? null,
+        fireProgress: 0, // will be inferred from fire marker position
+        alternateRoutes: routes
+          .filter((r: any) => Array.isArray(r.geometry) && r.geometry.length > 1)
+          .slice(0, 2)
+          .map((r: any, i: number) => ({
+            routeId: r.route_id ?? `alt-${i}`,
+            geometry: r.geometry as [number, number][],
+          })),
+      });
+    }
+  });
 
   const { isConnected } = useWebSocket("shipments", (message: unknown) => {
     // Handle special event types before generic processing
@@ -174,15 +222,28 @@ export default function FreightMap() {
         return;
       }
 
-      // ── Fire cleared: remove fire marker ──
-      if (msg.type === "fire_cleared") {
-        setFireMarkers([]);
+      // ── Truck arrived at fire location ──
+      if (msg.type === "truck_at_fire") {
+        import("sonner").then(({ toast }) => {
+          toast.warning(
+            `🚨 Truck stopped at fire zone! ${msg.origin} → ${msg.destination} — awaiting reroute decision.`,
+            { duration: Infinity, id: "truck-at-fire" },
+          );
+        });
         return;
       }
 
-      // ── Simulation started: hard-reset map to only demo 3 shipments ──
-      if (msg.type === "simulation_started") {
+      // ── Fire cleared: remove fire marker and VRP overlay ──
+      if (msg.type === "fire_cleared") {
         setFireMarkers([]);
+        setVrpOverlay(null);
+        import("sonner").then(({ toast }) => { toast.dismiss("truck-at-fire"); });
+        return;
+      }
+
+      // ── Simulation started: hard-reset map points but KEEP fire marker
+      // (fire should persist until user reroutes, not disappear on tick restart)
+      if (msg.type === "simulation_started") {
         // fall-through so the batch handler populates the 3 points
       }
     }
@@ -271,7 +332,8 @@ export default function FreightMap() {
 
     if (nextPoints.length > 0) {
       if (isReset) {
-        // Hard reset: replace entire points array with only the 3 demo shipments
+        // Hard reset: increment runId so Deck.GL destroys old layers (cancels transitions)
+        setRunId((r) => r + 1);
         setPoints(nextPoints);
       } else {
         setPoints((prev) => mergePoints(prev, nextPoints));
@@ -376,8 +438,8 @@ export default function FreightMap() {
     <div className="absolute inset-0">
       <MapGL
         ref={mapRef}
-        initialViewState={{ longitude: 79.4, latitude: 22.2, zoom: 4.1, pitch: 48, bearing: -6 }}
-        mapStyle={MAP_STYLE}
+        initialViewState={{ longitude: 79.4, latitude: 22.2, zoom: 5.4, pitch: 48, bearing: -6 }}
+        mapStyle={mapStyle}
         interactive
         dragPan
         scrollZoom

@@ -1,10 +1,11 @@
 import { useState, useMemo, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Search, Download, ChevronDown, Copy, X, Ship, Truck, Plane, Train, RefreshCw } from 'lucide-react';
 import { Map as MapGL, Marker } from 'react-map-gl/maplibre';
 import { apiClient } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 
 // ---------------------------------------------------------------------------
@@ -76,6 +77,16 @@ export function TrackingView() {
   const [sectorFilters, setSectorFilters] = useState<string[]>([]);
   const [sectorDropdownOpen, setSectorDropdownOpen] = useState(false);
   const [selectedRow, setSelectedRow] = useState<ShipmentRow | null>(null);
+
+  const queryClient = useQueryClient();
+
+  useWebSocket('shipments', (message: any) => {
+    if (message && typeof message === 'object') {
+      if (['fire_event', 'fire_cleared', 'simulation_started'].includes(message.type)) {
+        queryClient.invalidateQueries({ queryKey: ['shipments', 'table'] });
+      }
+    }
+  });
 
   // ── Data Fetching ────────────────────────────────────────────────────────
   const { data: shipments = [], isLoading, refetch } = useQuery({

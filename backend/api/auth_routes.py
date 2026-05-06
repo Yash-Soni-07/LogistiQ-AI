@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,6 +137,111 @@ async def login(data: schemas.UserLogin, db: AsyncSession = Depends(get_db_sessi
     refresh_token = create_refresh_token(user.id, user.tenant_id)
 
     return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+
+@router.post("/google", response_model=schemas.Token, status_code=status.HTTP_200_OK)
+async def google_auth(
+    data: schemas.GoogleAuthRequest, db: AsyncSession = Depends(get_db_session)
+):
+    """
+    Exchange a Google OAuth access_token for a LogistiQ JWT.
+
+    Verification: calls Google's /userinfo endpoint (fully async via httpx).
+    Flow:
+      - Existing email → login  → return JWT
+      - New email     → create tenant + admin user + seed demo data → return JWT
+    """
+    # 1. Verify the access_token by calling Google's userinfo endpoint
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {data.access_token}"},
+            )
+    except httpx.RequestError as exc:
+        logger.error("Failed to reach Google userinfo endpoint", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Could not verify Google account. Please try again.",
+        ) from exc
+
+    if resp.status_code != 200:
+        logger.warning("Google userinfo rejected access_token", status=resp.status_code)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Google token. Please sign in again.",
+        )
+
+    user_info = resp.json()
+    google_email: str = user_info.get("email", "")
+    if not google_email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account did not return an email address.",
+        )
+    google_name: str = user_info.get("name") or google_email.split("@")[0]
+
+    # 2. Look up existing user
+    result = await db.execute(select(models.User).where(models.User.email == google_email))
+    user = result.scalar_one_or_none()
+
+    if user:
+        # ── Existing user: issue new tokens (same as /login success path) ──────
+        logger.info("Google OAuth login", email=google_email, user_id=str(user.id))
+        access_token = create_access_token(user.id, user.tenant_id, user.role.value)
+        refresh_token = create_refresh_token(user.id, user.tenant_id)
+        return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+    # ── New user: create tenant + admin user + seed demo data ────────────────
+    try:
+        company = data.company_name or f"{google_name}'s Workspace"
+        tenant = models.Tenant(name=company)
+        db.add(tenant)
+        await db.flush()  # get tenant.id
+
+        user = models.User(
+            email=google_email,
+            full_name=google_name,
+            hashed_password=None,  # Google OAuth users have no password
+            role=models.UserRole.ADMIN,
+            tenant_id=tenant.id,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+        # Seed demo data (skipped in TESTING mode for test isolation)
+        if not settings.TESTING:
+            try:
+                from db.seed import (
+                    create_carriers,
+                    create_disruption_events,
+                    create_news_alerts,
+                    create_route_segments,
+                    create_shipments,
+                )
+
+                carriers = await create_carriers(db, str(tenant.id))
+                shipments = await create_shipments(db, str(tenant.id), carriers)
+                await create_route_segments(db, shipments)
+                await create_disruption_events(db, str(tenant.id))
+                await create_news_alerts(db, str(tenant.id))
+                logger.info("Demo data seeded for Google OAuth user", tenant_id=str(tenant.id))
+            except Exception as seed_err:
+                logger.warning("Failed to seed demo data (google oauth)", error=str(seed_err))
+
+        logger.info("Google OAuth registration", email=google_email, tenant_id=str(tenant.id))
+        access_token = create_access_token(user.id, tenant.id, user.role.value)
+        refresh_token = create_refresh_token(user.id, tenant.id)
+        return {"access_token": access_token, "refresh_token": refresh_token, "token_type": "bearer"}
+
+    except Exception as exc:
+        await db.rollback()
+        logger.error("Google OAuth registration failed", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not complete Google sign-in. Please try again.",
+        ) from exc
 
 
 @router.post("/refresh", response_model=schemas.Token)

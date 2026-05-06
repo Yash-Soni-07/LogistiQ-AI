@@ -22,6 +22,13 @@ export interface FireMarker {
   eventId: string;
 }
 
+/** VRP route overlay shown after fire simulation — alternate routes in green, blocked in red */
+export interface VRPOverlay {
+  affectedShipmentId: string | null;
+  fireProgress: number; // 0–1, used to slice the blocked segment
+  alternateRoutes: { routeId: string; geometry: [number, number][] }[];
+}
+
 export function buildFireLayer(markers: FireMarker[]): Layer[] {
   if (!markers || markers.length === 0) return [];
   const updateKey = markers.map((m) => m.eventId).join("|");
@@ -79,14 +86,14 @@ interface SurfacePathDatum {
 }
 
 // ── Color palette ──
-const ROAD_COLOR: [number, number, number, number] = [56, 189, 248, 240];
-const SEA_COLOR: [number, number, number, number] = [34, 211, 238, 240];
-const AIR_COLOR: [number, number, number, number] = [139, 148, 255, 240];
-const RAIL_COLOR: [number, number, number, number] = [167, 139, 250, 240];
+const ROAD_COLOR: [number, number, number, number] = [139, 92, 246, 240];
+const SEA_COLOR: [number, number, number, number] = [14, 165, 233, 240];
+const AIR_COLOR: [number, number, number, number] = [236, 72, 153, 240];
+const RAIL_COLOR: [number, number, number, number] = [16, 185, 129, 240];
 
-const ROAD_GLOW: [number, number, number, number] = [56, 189, 248, 50];
-const SEA_GLOW: [number, number, number, number] = [34, 211, 238, 45];
-const AIR_GLOW: [number, number, number, number] = [139, 148, 255, 35];
+const ROAD_GLOW: [number, number, number, number] = [139, 92, 246, 50];
+const SEA_GLOW: [number, number, number, number] = [14, 165, 233, 45];
+const AIR_GLOW: [number, number, number, number] = [236, 72, 153, 35];
 
 function modeColor(mode: FreightMode): [number, number, number, number] {
   if (mode === "sea") return SEA_COLOR;
@@ -107,7 +114,8 @@ function modeWidth(mode: FreightMode): number {
   return 3.8;
 }
 
-export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
+// ── Freight Layers: Air, Sea, Road, and Rail ─────────────────────────────────
+export function buildFreightLayers(points: FreightRenderPoint[], runId = 0): Layer[] {
   const airPoints = points.filter((p) => p.mode === "air");
   const seaPoints = points.filter((p) => p.mode === "sea");
   const roadRailPoints = points.filter((p) => p.mode !== "air" && p.mode !== "sea");
@@ -141,7 +149,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
   return [
     // ━━━ AIR: Full planned arc (ghosted) ━━━
     new ArcLayer<FreightRenderPoint>({
-      id: "freight-air-arcs-planned",
+      id: `freight-air-arcs-planned-${runId}`,
       data: airPoints,
       getSourcePosition: (d) => d.origin,
       getTargetPosition: (d) => d.destination,
@@ -159,7 +167,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ AIR: Progress arc (bright, animated) ━━━
     new ArcLayer<FreightRenderPoint>({
-      id: "freight-air-arcs-progress",
+      id: `freight-air-arcs-progress-${runId}`,
       data: airPoints,
       getSourcePosition: (d) => d.origin,
       getTargetPosition: (d) => d.current,
@@ -178,7 +186,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ AIR: Glow arc underneath ━━━
     new ArcLayer<FreightRenderPoint>({
-      id: "freight-air-arcs-glow",
+      id: `freight-air-arcs-glow-${runId}`,
       data: airPoints,
       getSourcePosition: (d) => d.origin,
       getTargetPosition: (d) => d.current,
@@ -197,14 +205,14 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ SEA: Glow underlayer ━━━
     new PathLayer<SurfacePathDatum>({
-      id: "freight-sea-glow",
+      id: `freight-sea-glow-${runId}`,
       data: seaPlanned,
       getPath: (d) => d.path,
       getColor: SEA_GLOW,
-      getWidth: 12,
+      getWidth: 8,
       widthUnits: "pixels",
-      widthMinPixels: 6,
-      widthMaxPixels: 16,
+      widthMinPixels: 2,
+      widthMaxPixels: 10,
       capRounded: true,
       jointRounded: true,
       billboard: true,
@@ -213,7 +221,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ SEA: Planned route (dashed) ━━━
     new PathLayer<SurfacePathDatum>({
-      id: "freight-sea-routes-planned",
+      id: `freight-sea-routes-planned-${runId}`,
       data: seaPlanned,
       getPath: (d) => d.path,
       getColor: [34, 211, 238, 90],
@@ -231,7 +239,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ SEA: Travelled progress (solid bright) ━━━
     new PathLayer<SurfacePathDatum>({
-      id: "freight-sea-routes-progress",
+      id: `freight-sea-routes-progress-${runId}`,
       data: seaTravelled,
       getPath: (d) => d.path,
       getColor: SEA_COLOR,
@@ -248,14 +256,14 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ ROAD: Glow underlayer ━━━
     new PathLayer<SurfacePathDatum>({
-      id: "freight-road-glow",
+      id: `freight-road-glow-${runId}`,
       data: roadPlanned,
       getPath: (d) => d.path,
       getColor: (d) => modeGlow(d.mode),
-      getWidth: 10,
+      getWidth: 7,
       widthUnits: "pixels",
-      widthMinPixels: 5,
-      widthMaxPixels: 14,
+      widthMinPixels: 2,
+      widthMaxPixels: 10,
       capRounded: true,
       jointRounded: true,
       billboard: true,
@@ -264,7 +272,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ ROAD: Planned route (ghosted solid) ━━━
     new PathLayer<SurfacePathDatum>({
-      id: "freight-road-routes-planned",
+      id: `freight-road-routes-planned-${runId}`,
       data: roadPlanned,
       getPath: (d) => d.path,
       getColor: (d) => {
@@ -273,8 +281,8 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
       },
       getWidth: (d) => modeWidth(d.mode),
       widthUnits: "pixels",
-      widthMinPixels: 2,
-      widthMaxPixels: 6,
+      widthMinPixels: 1,
+      widthMaxPixels: 5,
       capRounded: true,
       jointRounded: true,
       billboard: true,
@@ -283,14 +291,14 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ ROAD: Travelled progress (bright solid) ━━━
     new PathLayer<SurfacePathDatum>({
-      id: "freight-road-routes-progress",
+      id: `freight-road-routes-progress-${runId}`,
       data: roadTravelled,
       getPath: (d) => d.path,
       getColor: (d) => modeColor(d.mode),
       getWidth: (d) => modeWidth(d.mode) + 1,
       widthUnits: "pixels",
-      widthMinPixels: 3,
-      widthMaxPixels: 8,
+      widthMinPixels: 2,
+      widthMaxPixels: 7,
       capRounded: true,
       jointRounded: true,
       billboard: true,
@@ -300,7 +308,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ MARKERS: Origin points (small, muted) ━━━
     new ScatterplotLayer<FreightRenderPoint>({
-      id: "freight-origin-points",
+      id: `freight-origin-points-${runId}`,
       data: points,
       getPosition: (d) => d.origin,
       getRadius: 4500,
@@ -316,7 +324,7 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ MARKERS: Destination points ━━━
     new ScatterplotLayer<FreightRenderPoint>({
-      id: "freight-destination-points",
+      id: `freight-destination-points-${runId}`,
       data: points,
       getPosition: (d) => d.destination,
       getRadius: 5000,
@@ -332,12 +340,12 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ MARKERS: Live vehicle glow ring ━━━
     new ScatterplotLayer<FreightRenderPoint>({
-      id: "freight-live-glow",
+      id: `freight-live-glow-${runId}`,
       data: points,
       getPosition: (d) => d.current,
-      getRadius: 18000,
-      radiusMinPixels: 10,
-      radiusMaxPixels: 28,
+      getRadius: 14000,
+      radiusMinPixels: 6,
+      radiusMaxPixels: 22,
       getFillColor: (d) => {
         const c = modeColor(d.mode);
         return [c[0], c[1], c[2], 40];
@@ -350,12 +358,12 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
 
     // ━━━ MARKERS: Live vehicle dot ━━━
     new ScatterplotLayer<FreightRenderPoint>({
-      id: "freight-live-points",
+      id: `freight-live-points-${runId}`,
       data: points,
       getPosition: (d) => d.current,
       getRadius: 8000,
-      radiusMinPixels: 5,
-      radiusMaxPixels: 16,
+      radiusMinPixels: 7,
+      radiusMaxPixels: 18,
       getFillColor: (d) => modeColor(d.mode),
       getLineColor: [255, 255, 255, 220],
       lineWidthMinPixels: 1.5,
@@ -365,4 +373,70 @@ export function buildFreightLayers(points: FreightRenderPoint[]): Layer[] {
       transitions: { getPosition: 700 },
     }),
   ];
+}
+
+// ── VRP Overlay: alternate routes (green) + blocked segment (red) ────────────────
+export function buildVRPLayers(
+  overlay: VRPOverlay | null,
+  points: FreightRenderPoint[],
+): Layer[] {
+  if (!overlay || overlay.alternateRoutes.length === 0) return [];
+
+  const layers: Layer[] = [];
+
+  // Red layer: remaining (untraversed + blocked) segment of affected shipment
+  const affected = points.find((p) => p.shipmentId === overlay.affectedShipmentId);
+  if (affected && affected.routePath.length > 1) {
+    // Compute remaining path: from current progress index to end
+    const n = affected.routePath.length;
+    const scaled = affected.progress * (n - 1);
+    const startIdx = Math.floor(scaled);
+    const remaining: [number, number][] = [
+      affected.current as [number, number],
+      ...(affected.routePath.slice(startIdx + 1) as [number, number][]),
+    ];
+    if (remaining.length > 1) {
+      layers.push(
+        new PathLayer<{ path: [number, number][] }>({
+          id: "vrp-blocked-route",
+          data: [{ path: remaining as [number, number][] }],
+          getPath: (d) => d.path,
+          getWidth: 5,
+          widthMinPixels: 3,
+          widthMaxPixels: 8,
+          getColor: [239, 68, 68, 210],  // red-500
+          rounded: true,
+          capRounded: true,
+          jointRounded: true,
+          extensions: [new PathStyleExtension({ dash: true })],
+          ...({ getDashArray: [8, 5] } as Record<string, unknown>),
+        }),
+      );
+    }
+  }
+
+  // Green layers: alternate OSRM routes
+  const GREENS: [number, number, number, number][] = [
+    [34, 197, 94, 230],  // green-500
+    [16, 185, 129, 200], // emerald-500
+  ];
+  overlay.alternateRoutes.forEach((alt, i) => {
+    if (alt.geometry.length < 2) return;
+    layers.push(
+      new PathLayer<{ path: [number, number][] }>({
+        id: `vrp-alt-route-${i}`,
+        data: [{ path: alt.geometry }],
+        getPath: (d) => d.path,
+        getWidth: 5,
+        widthMinPixels: 3,
+        widthMaxPixels: 8,
+        getColor: GREENS[i] ?? GREENS[0],
+        rounded: true,
+        capRounded: true,
+        jointRounded: true,
+      }),
+    );
+  });
+
+  return layers;
 }

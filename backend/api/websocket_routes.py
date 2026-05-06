@@ -471,9 +471,26 @@ async def ws_copilot(
     except WebSocketDisconnect:
         pass
     except Exception as exc:
-        log.error("ws.copilot.error", error=str(exc))
+        exc_str = str(exc)
+        # ── Detect Gemini / Google API quota exhaustion (HTTP 429 / gRPC RESOURCE_EXHAUSTED) ──
+        is_rate_limit = (
+            "429" in exc_str
+            or "RESOURCE_EXHAUSTED" in exc_str
+            or "quota" in exc_str.lower()
+            or "rate" in exc_str.lower()
+        )
+        if is_rate_limit:
+            log.warning("ws.copilot.rate_limited", error=exc_str[:200])
+            user_msg = (
+                "⚠️ Gemini API rate limit reached (free-tier quota exhausted). "
+                "Please wait a moment and try again. "
+                "If this persists, the daily request limit has been hit."
+            )
+        else:
+            log.error("ws.copilot.error", error=exc_str)
+            user_msg = "An unexpected error occurred. Please try again."
         try:
-            await ws.send_json({"type": "token", "content": "Error processing request."})
+            await ws.send_json({"type": "token", "content": user_msg})
             await ws.send_json({"type": "done", "reasoning_steps": [], "suggested_actions": []})
         except Exception:  # noqa: BLE001,S110
             pass

@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-1.5-flash"
 
+    # ── Google OAuth ────────────────────────────────────────
+    # Client ID from Google Cloud Console (same value used on the frontend).
+    # Must be set in production; leave empty to disable Google OAuth endpoint.
+    GOOGLE_CLIENT_ID: str = ""  # noqa: S105
+
     # ── Agent configuration ───────────────────────────────────
     PHASE_2_ENABLED: bool = False  # Feature flag to isolate Phase 2 autonomous agents
     RISK_THRESHOLD_DELAY: float = 0.70  # mark DELAYED above this risk score

@@ -118,6 +118,7 @@
 
 body {
   margin: 0;
+  overflow: hidden; /* page scroll is handled per-panel, never the body */
 }
 
 
@@ -295,7 +296,8 @@ body {
 .lq-shell {
   display: flex;
   flex-direction: row;
-  min-height: 100svh;
+  height: 100svh;        /* hard-clamp — prevents body scrollbar */
+  overflow: hidden;
   background: var(--lq-bg);
 }
 
@@ -314,7 +316,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100svh;
+  height: 100%;          /* fills lq-shell exactly */
   overflow: hidden;
 }
 

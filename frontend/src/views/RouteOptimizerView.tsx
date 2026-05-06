@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Play, CheckCircle2, Route, ArrowRight, Zap, Target, Leaf, Activity, Flame, Loader2 } from 'lucide-react';
+import { Play, CheckCircle2, Route, ArrowRight, Zap, Target, Leaf, Activity, Flame, Loader2, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { apiClient } from '@/lib/api';
@@ -145,14 +144,14 @@ function buildCandidatesFromVRP(data: any): RouteCandidate[] {
 // ---------------------------------------------------------------------------
 
 export default function RouteOptimizerView() {
-  const navigate = useNavigate();
   const [candidates, setCandidates] = useState<RouteCandidate[]>([]);
   const [disruption, setDisruption] = useState<DisruptionInfo | null>(null);
   const [bids] = useState<Bid[]>(MOCK_BIDS);
   const [timer, setTimer] = useState(45);
+  const [timerActive, setTimerActive] = useState(true);
   const [solveInfo, setSolveInfo] = useState<{ tokens: number; fallback: boolean } | null>(null);
   const [waiting, setWaiting] = useState(true);
-  const [dispatching, setDispatching] = useState<string | null>(null); // route id being dispatched
+  const [dispatching, setDispatching] = useState<string | null>(null);
 
   const handleDispatch = async (candidate: RouteCandidate) => {
     if (dispatching) return;
@@ -163,11 +162,10 @@ export default function RouteOptimizerView() {
       });
       if (res.data.status === 'rerouted') {
         toast.success(
-          `✅ Dispatched! Road shipment rerouted (${res.data.new_waypoints} waypoints). Map updating…`,
+          `✅ Dispatched! Shipment rerouted via ${candidate.name} (${res.data.new_waypoints} waypoints). Map updating…`,
           { duration: 5000 },
         );
-        // Navigate to dashboard so user sees the map update
-        navigate('/');
+        // Stay on page — map updates live via WS
       } else {
         toast.error(res.data.message ?? 'Dispatch failed — is simulation running?');
       }
@@ -179,7 +177,6 @@ export default function RouteOptimizerView() {
     }
   };
 
-  // Connect to VRP results WS
   useWebSocket('vrp-results', (msg) => {
     if (msg.type === 'pong' || msg.type === 'heartbeat') return;
     if (msg.disruption || msg.alternate_routes) {
@@ -188,13 +185,19 @@ export default function RouteOptimizerView() {
       setDisruption(msg.disruption);
       setSolveInfo({ tokens: msg.gemini_tokens_used || 0, fallback: msg.fallback_used || false });
       setWaiting(false);
+      setTimer(45); // reset auction timer
+      setTimerActive(true);
     }
   });
 
   useEffect(() => {
-    const int = setInterval(() => setTimer(t => (t > 0 ? t - 1 : 0)), 1000);
+    if (!timerActive) return;
+    const int = setInterval(() => setTimer(t => {
+      if (t <= 1) { setTimerActive(false); return 0; }
+      return t - 1;
+    }), 1000);
     return () => clearInterval(int);
-  }, []);
+  }, [timerActive]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--lq-bg)] overflow-hidden">
@@ -262,26 +265,41 @@ export default function RouteOptimizerView() {
         {/* Route Candidates */}
         {candidates.length > 0 && (
           <>
-            <h2 className="text-xl font-semibold text-[var(--lq-text-bright)] mb-6 font-heading">Route Candidates</h2>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+            <h2 className="text-base font-semibold text-[var(--lq-text-bright)] mb-4 font-heading flex items-center gap-2">
+              <Route size={16} className="text-[var(--lq-cyan)]" /> Route Candidates
+              {disruption && (
+                <span className="text-xs font-normal text-[var(--lq-text-dim)] ml-1">
+                  — {disruption.description?.split(' near')[0]}
+                </span>
+              )}
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
               {candidates.map((route) => {
                 const isHighRisk = route.risk_score > 0.5;
                 const isDisrupted = route.solution_number === 0;
+                // Extract shipment route from disruption info
+                const shipmentRoute = disruption?.description?.match(/route (.+?) near/)?.[1] ?? null;
 
                 return (
                   <div key={route.id} className={cn("bg-[var(--lq-surface)] border rounded-xl overflow-hidden shadow-sm flex flex-col", isDisrupted ? "border-red-500/50 opacity-75" : isHighRisk ? "border-[var(--lq-amber)]/50" : "border-[var(--lq-border)]")}>
-                    
-                    <div className="p-4 border-b border-[var(--lq-border)] flex items-start justify-between">
-                      <div>
-                        <span className={cn("text-xs font-mono uppercase tracking-wider", isDisrupted ? 'text-red-400' : 'text-[var(--lq-text-bright)]')}>
+
+                    <div className="p-3 border-b border-[var(--lq-border)] flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className={cn("text-[10px] font-mono uppercase tracking-wider", isDisrupted ? 'text-red-400' : 'text-[var(--lq-text-bright)]')}>
                           {isDisrupted ? '⚠ Blocked' : `Solution #${route.solution_number}`}
                         </span>
-                        <h3 className="text-lg font-semibold text-[var(--lq-text-bright)] mt-0.5">{route.name}</h3>
+                        <h3 className="text-sm font-semibold text-[var(--lq-text-bright)] mt-0.5 truncate">{route.name}</h3>
+                        {shipmentRoute && (
+                          <div className="flex items-center gap-1 mt-1">
+                            <Package size={9} className="text-[var(--lq-text-dim)] shrink-0" />
+                            <span className="text-[9px] font-mono text-[var(--lq-text-dim)] truncate">{shipmentRoute}</span>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex flex-col items-end">
-                        <span className="text-[10px] uppercase text-[var(--lq-text-bright)] font-semibold mb-1">Risk Score</span>
-                        <span className={cn("text-xl font-mono font-bold leading-none", isHighRisk ? "text-[var(--lq-amber)]" : "text-[var(--lq-green)]")}>
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="text-[10px] uppercase text-[var(--lq-text-bright)] font-semibold mb-0.5">Risk</span>
+                        <span className={cn("text-lg font-mono font-bold leading-none", isHighRisk ? "text-[var(--lq-amber)]" : "text-[var(--lq-green)]")}>
                           {route.risk_score.toFixed(2)}
                         </span>
                       </div>
@@ -323,16 +341,16 @@ export default function RouteOptimizerView() {
                     </div>
 
                     {!isDisrupted && (
-                      <div className="p-4 border-t border-[var(--lq-border)] bg-[var(--lq-surface-2)] flex items-center justify-between">
-                        <button className={cn(
-                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors",
-                          route.carbon_delta < 0 
-                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20" 
-                            : "bg-[var(--lq-surface)] text-[var(--lq-text)] border-[var(--lq-border)] hover:bg-[var(--lq-border)]"
+                      <div className="p-3 border-t border-[var(--lq-border)] bg-[var(--lq-surface-2)] flex items-center justify-between">
+                        <span className={cn(
+                          "flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border",
+                          route.carbon_delta < 0
+                            ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                            : "bg-[var(--lq-surface)] text-[var(--lq-text-dim)] border-[var(--lq-border)]"
                         )}>
-                          <Leaf size={14} />
-                          {route.carbon_delta < 0 ? `${route.carbon_delta}t CO₂` : 'Green Mode'}
-                        </button>
+                          <Leaf size={11} />
+                          {route.carbon_delta < 0 ? `${route.carbon_delta}t CO₂` : 'Carbon neutral'}
+                        </span>
                         <button
                           id={`dispatch-route-${route.id}`}
                           onClick={() => handleDispatch(route)}
@@ -364,8 +382,13 @@ export default function RouteOptimizerView() {
                   /ws/carrier-auction
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[var(--lq-amber)] font-mono text-sm font-bold bg-amber-500/10 px-3 py-1 rounded border border-amber-500/20">
-                00:00:{timer.toString().padStart(2, '0')}
+              <div className="flex items-center gap-2 font-mono text-sm font-bold px-3 py-1 rounded border"
+                style={timerActive
+                  ? { background: 'rgba(245,158,11,0.1)', borderColor: 'rgba(245,158,11,0.2)', color: 'var(--lq-amber)' }
+                  : { background: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: 'var(--lq-red)' }
+                }
+              >
+                {timerActive ? `00:00:${timer.toString().padStart(2, '0')}` : 'AUCTION CLOSED'}
               </div>
             </div>
             
@@ -399,13 +422,16 @@ export default function RouteOptimizerView() {
                           <span className="text-xs font-mono text-[var(--lq-text-dim)]">{Math.round(bid.confidence * 100)}%</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right">
-                        <button className={cn(
-                          "px-3 py-1.5 rounded text-xs font-semibold border transition-colors",
-                          bid.rank === 1 
-                            ? "bg-[var(--lq-green)] text-white border-transparent shadow-sm hover:opacity-90" 
-                            : "bg-[var(--lq-surface)] text-[var(--lq-text-bright)] border-[var(--lq-border)] hover:bg-[var(--lq-surface-2)]"
-                        )}>
+                      <td className="px-4 py-2.5 text-right">
+                        <button
+                          onClick={() => toast.success(`Carrier ${bid.carrier_name} accepted. Logistics team notified.`, { duration: 4000 })}
+                          className={cn(
+                            "px-3 py-1.5 rounded text-xs font-semibold border transition-colors",
+                            bid.rank === 1
+                              ? "bg-[var(--lq-green)] text-white border-transparent shadow-sm hover:opacity-90"
+                              : "bg-[var(--lq-surface)] text-[var(--lq-text-bright)] border-[var(--lq-border)] hover:bg-[var(--lq-surface-2)]"
+                          )}
+                        >
                           Accept
                         </button>
                       </td>

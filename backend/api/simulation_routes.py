@@ -90,6 +90,8 @@ INDIAN_CITY_COORDS: dict[str, tuple[float, float]] = {
 _simulation_tasks: dict[str, asyncio.Task[None]] = {}
 _active_simulations: dict[str, list[SimulatedShipment]] = {}
 _simulation_lock = asyncio.Lock()
+_simulation_speed: dict[str, float] = {}  # live-updated without restart
+_active_fire: dict[str, dict] = {}         # keyed by tenant_id while fire is active
 
 
 async def _fetch_osrm_route(
@@ -199,6 +201,64 @@ async def _seed_demo_shipments(
     await db.flush()
 
 
+# ── Coastal waypoints for sea-route simulation (mirrors frontend routeGeometry.ts) ──
+_COASTAL_NODES: list[list[float]] = [
+    [69.0, 22.5], [71.5, 19.8], [72.0, 18.5], [72.8, 16.0], [73.2, 15.2],
+    [74.0, 13.0], [75.2, 10.5], [76.0, 8.5],  [77.5, 7.0],  [78.8, 8.2],
+    [79.8, 10.5], [80.8, 13.2], [82.0, 15.5], [83.5, 17.8], [85.5, 19.8],
+    [87.5, 21.0], [89.0, 21.8],
+]
+
+_MAJOR_PORTS: list[dict] = [
+    {"coords": [70.13, 23.00], "idx": 0},
+    {"coords": [72.88, 19.08], "idx": 2},
+    {"coords": [73.80, 15.40], "idx": 4},
+    {"coords": [74.80, 12.87], "idx": 5},
+    {"coords": [76.27, 9.93],  "idx": 6},
+    {"coords": [78.18, 8.80],  "idx": 9},
+    {"coords": [80.27, 13.08], "idx": 11},
+    {"coords": [83.22, 17.69], "idx": 13},
+    {"coords": [87.20, 20.47], "idx": 15},
+    {"coords": [88.05, 22.00], "idx": 16},
+]
+
+
+def _nearest_port(lon: float, lat: float) -> dict:
+    best = _MAJOR_PORTS[0]
+    best_dist = float("inf")
+    for p in _MAJOR_PORTS:
+        d = math.sqrt((lon - p["coords"][0]) ** 2 + (lat - p["coords"][1]) ** 2)
+        if d < best_dist:
+            best_dist = d
+            best = p
+    return best
+
+
+def _build_sea_coastal_path(
+    start_lon: float, start_lat: float, end_lon: float, end_lat: float
+) -> list[list[float]]:
+    """Coastal waypoint path for sea shipments — mirrors frontend buildSeaPath()."""
+    sp = _nearest_port(start_lon, start_lat)
+    ep = _nearest_port(end_lon, end_lat)
+    si, ei = sp["idx"], ep["idx"]
+    lo, hi = min(si, ei), max(si, ei)
+    coastal = _COASTAL_NODES[lo : hi + 1]
+    if si > ei:
+        coastal = list(reversed(coastal))
+    # Inland approach legs (5-point linear interpolation each side)
+    def lerp_leg(a: list[float], b: list[float], steps: int = 5) -> list[list[float]]:
+        return [
+            [a[0] + (b[0] - a[0]) * t / steps, a[1] + (b[1] - a[1]) * t / steps]
+            for t in range(1, steps + 1)
+        ]
+    path = (
+        lerp_leg([start_lon, start_lat], sp["coords"])
+        + coastal
+        + lerp_leg(ep["coords"], [end_lon, end_lat])
+    )
+    return [[round(p[0], 6), round(p[1], 6)] for p in path]
+
+
 @dataclass
 class SimulatedShipment:
     shipment_id: str
@@ -215,9 +275,13 @@ class SimulatedShipment:
     total_distance_km: float
     progress: float = 0.0
     route_path: list[list[float]] = field(default_factory=list)
+    blocked: bool = False   # True when truck stops at fire location
     _path_index: float = 0.0
 
     def advance(self, speed_multiplier: float, tick_seconds: float) -> bool:
+        # Frozen at fire location — don't move, don't complete
+        if self.blocked:
+            return False
         speed_kmh = MODE_SPEEDS_KMH.get(self.mode, 60.0)
         step_distance_km = speed_kmh * speed_multiplier * (tick_seconds / 3600.0)
 
@@ -227,8 +291,10 @@ class SimulatedShipment:
             delta = step_distance_km / self.total_distance_km
             self.progress = min(1.0, self.progress + delta)
 
-        # Road/rail: follow OSRM waypoints; air/sea: linear interpolation
-        if self.route_path and len(self.route_path) >= 2 and self.mode == ShipmentMode.ROAD:
+        # Road and Sea: follow stored waypoints; Air: linear interpolation
+        if self.route_path and len(self.route_path) >= 2 and self.mode in (
+            ShipmentMode.ROAD, ShipmentMode.SEA
+        ):
             idx = self.progress * (len(self.route_path) - 1)
             lo = int(idx)
             hi = min(lo + 1, len(self.route_path) - 1)
@@ -263,13 +329,15 @@ class SimulatedShipment:
                 else ShipmentStatus.IN_TRANSIT.value
             ),
             "progress": round(self.progress, 4),
-            "route_path": self.route_path if self.mode == ShipmentMode.ROAD else [],
+            # Send route_path for both road and sea so frontend renders correct path
+            "route_path": self.route_path if self.mode in (ShipmentMode.ROAD, ShipmentMode.SEA) else [],
         }
 
 
 async def _prepare_simulation_shipments(
     db: AsyncSession,
     tenant_id: str,
+    modes: list[str] | None = None,
 ) -> tuple[list[SimulatedShipment], int]:
     rows = (await db.execute(_recent_shipments_stmt(tenant_id))).scalars().all()
     seeded_count = 0
@@ -342,12 +410,44 @@ async def _prepare_simulation_shipments(
             )
         )
 
-    # Fetch OSRM routes for road shipments
+    # Fetch OSRM routes for road shipments concurrently
+    road_sims = [s for s in simulations if s.mode == ShipmentMode.ROAD]
+    if road_sims:
+        routes = await asyncio.gather(
+            *[_fetch_osrm_route(s.start_lon, s.start_lat, s.end_lon, s.end_lat)
+              for s in road_sims],
+            return_exceptions=True,
+        )
+        for sim, route in zip(road_sims, routes):
+            if isinstance(route, list):
+                sim.route_path = route
+
+    # Build coastal paths for sea shipments — pure port-to-port, no inland legs
     for sim in simulations:
-        if sim.mode == ShipmentMode.ROAD:
-            sim.route_path = await _fetch_osrm_route(
-                sim.start_lon, sim.start_lat, sim.end_lon, sim.end_lat
+        if sim.mode == ShipmentMode.SEA:
+            sp = _nearest_port(sim.start_lon, sim.start_lat)
+            ep = _nearest_port(sim.end_lon, sim.end_lat)
+            # Snap ship start/end to PORT coordinates so it stays in water
+            sim.start_lon, sim.start_lat = sp["coords"]
+            sim.end_lon, sim.end_lat = ep["coords"]
+            sim.current_lon, sim.current_lat = sp["coords"]
+            # Pure coastal waypoints — no lerp legs over land
+            si, ei = sp["idx"], ep["idx"]
+            lo, hi = min(si, ei), max(si, ei)
+            coastal: list[list[float]] = list(_COASTAL_NODES[lo:hi + 1])
+            if si > ei:
+                coastal = list(reversed(coastal))
+            if len(coastal) < 2:
+                # If same port, add one intermediate coastal node
+                coastal = [sp["coords"], _COASTAL_NODES[max(0, sp["idx"] - 1)], ep["coords"]]
+            sim.route_path = [[round(p[0], 6), round(p[1], 6)] for p in coastal]
+            # Recalculate distance along coastal path
+            sim.total_distance_km = sum(
+                _haversine_km(coastal[i][0], coastal[i][1], coastal[i + 1][0], coastal[i + 1][1])
+                for i in range(len(coastal) - 1)
             )
+    if modes:
+        simulations = [s for s in simulations if s.mode.value in modes]
 
     await db.commit()
 
@@ -412,9 +512,34 @@ async def _run_simulation_worker(
 
         while True:
             completed = 0
+            current_speed = _simulation_speed.get(tenant_id, speed_multiplier)
+            fire = _active_fire.get(tenant_id)
+
             for point in simulated:
-                if point.advance(speed_multiplier=speed_multiplier, tick_seconds=tick_seconds):
+                if point.advance(speed_multiplier=current_speed, tick_seconds=tick_seconds):
                     completed += 1
+
+                # Check if this ship just reached the fire location
+                if (
+                    fire
+                    and not point.blocked
+                    and point.shipment_id == fire.get("shipment_id")
+                    and point.progress >= fire.get("fire_progress", 1.0) - 0.03
+                ):
+                    point.blocked = True
+                    await redis_client.publish(
+                        channel,
+                        json.dumps({
+                            "type": "truck_at_fire",
+                            "shipment_id": point.shipment_id,
+                            "origin": point.origin,
+                            "destination": point.destination,
+                            "fire_lat": fire.get("fire_lat"),
+                            "fire_lon": fire.get("fire_lon"),
+                            "ts": _utc_now(),
+                        }),
+                    )
+                    log.info("simulation.truck_at_fire", tenant_id=tenant_id, shipment_id=point.shipment_id)
 
             await _persist_positions(tenant_id=tenant_id, simulated=simulated)
 
@@ -483,6 +608,7 @@ async def start_simulation_demo(
     user: Annotated[User, Depends(operator_user_dependency)],
     db: Annotated[AsyncSession, Depends(get_db_session)],
     restart: bool = Query(False, description="Cancel and restart an existing simulation"),
+    modes: str | None = Query(None, description="Comma-separated list of transport modes to simulate"),
     speed_multiplier: float | None = Query(
         None,
         gt=1.0,
@@ -504,7 +630,16 @@ async def start_simulation_demo(
                 }
             existing_task.cancel()
 
-    simulated, seeded_count = await _prepare_simulation_shipments(db=db, tenant_id=tenant_id)
+    # Clear old fire events and VRP results when re-simulating
+    _active_fire.pop(tenant_id, None)
+    await redis_client.delete(f"vrp_results:{tenant_id}")
+    clear_event = json.dumps({"type": "fire_cleared"})
+    await redis_client.publish(f"shipments:{tenant_id}", clear_event)
+
+    modes_list = [m.strip().lower() for m in modes.split(",")] if modes else None
+    simulated, seeded_count = await _prepare_simulation_shipments(
+        db=db, tenant_id=tenant_id, modes=modes_list
+    )
 
     task = asyncio.create_task(
         _run_simulation_worker(
@@ -537,9 +672,30 @@ async def start_simulation_demo(
     }
 
 
+@router.patch("/speed")
+async def update_simulation_speed(
+    user: Annotated[User, Depends(operator_user_dependency)],
+    speed_multiplier: float = Query(
+        ...,
+        gt=1.0,
+        le=100000.0,
+        description="Demo speed multiplier applied to base transport speeds",
+    ),
+) -> dict[str, Any]:
+    """Dynamically update the speed of the running simulation without restarting."""
+    tenant_id = str(user.tenant_id)
+    _simulation_speed[tenant_id] = speed_multiplier
+    return {
+        "status": "success",
+        "tenant_id": tenant_id,
+        "speed_multiplier": speed_multiplier,
+    }
+
+
 @router.post("/disruption/fire")
 async def simulate_fire_disruption(
     user: Annotated[User, Depends(operator_user_dependency)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> dict[str, Any]:
     """Trigger a fire disruption on the active road shipment.
 
@@ -554,16 +710,29 @@ async def simulate_fire_disruption(
     import httpx
 
     tenant_id = str(user.tenant_id)
-    sims = _active_simulations.get(tenant_id, [])
-    road_ship = next((s for s in sims if s.mode == ShipmentMode.ROAD and s.progress < 1.0), None)
+    if tenant_id in _active_fire:
+        old_fire = _active_fire.pop(tenant_id)
+        # Clear the old fire from the map and vrp results
+        clear_event = json.dumps({
+            "type": "fire_cleared",
+            "shipment_id": old_fire.get("shipment_id")
+        })
+        redis_client.publish(f"shipments:{tenant_id}", clear_event)
+        redis_client.delete(f"vrp_results:{tenant_id}")
 
-    if not road_ship:
+    sims = _active_simulations.get(tenant_id, [])
+    road_sims = [s for s in sims if s.mode == ShipmentMode.ROAD and s.progress < 1.0]
+
+    if not road_sims:
         return {
             "status": "error",
-            "message": "No active road shipment found. Start simulation first.",
+            "message": "No active road shipments found. Start simulation first.",
         }
 
-    # ── 1. Pick fire point 25% ahead on route (visible but not too close to destination) ──
+    import random
+    road_ship = random.choice(road_sims)
+
+    # ── 1. Pick fire point 25% ahead on route ──
     if road_ship.route_path and len(road_ship.route_path) >= 4:
         fire_progress = min(road_ship.progress + 0.25, 0.80)
         path = road_ship.route_path
@@ -586,59 +755,72 @@ async def simulate_fire_disruption(
         f"near ({fire_lat:.2f}°N, {fire_lon:.2f}°E)"
     )
 
-    # ── 2. OSRM fast VRP — get alternate routes immediately ──
-    alternate_routes: list[dict[str, Any]] = []
-    try:
-        o_lon, o_lat = road_ship.start_lon, road_ship.start_lat
-        d_lon, d_lat = road_ship.end_lon, road_ship.end_lat
-        coord_str = f"{o_lon},{o_lat};{d_lon},{d_lat}"
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"http://router.project-osrm.org/route/v1/driving/{coord_str}",
-                params={
-                    "overview": "false",
-                    "alternatives": "true",
-                    "steps": "false",
-                },
-                timeout=8.0,
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                for i, route in enumerate(data.get("routes", [])[:3]):
-                    alternate_routes.append(
-                        {
-                            "route_id": f"{event_id}-alt-{i}",
-                            "distance_km": round(route.get("distance", 0) / 1000, 1),
-                            "duration_min": round(route.get("duration", 0) / 60, 0),
-                            "via_waypoints": [f"Route {i + 1} (OSRM)"],
-                            "cost_inr": round(route.get("distance", 0) / 1000 * 45, 0),
-                            "eta_hours": round(route.get("duration", 0) / 3600, 1),
-                        }
-                    )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("fire.osrm_alternatives_failed", error=str(exc))
+    # ── 2. OSRM fast VRP — compute alternates FROM CURRENT TRUCK POSITION ──
+    # Route 0 = primary path (already shown as red remaining route by frontend)
+    # Routes 1+ = true alternates to show as green overlay
+    import random
+    import numpy as np
+    from ml.vrp_solver import VRPInput, VRPNode, VRPVehicle, solve
 
-    # Fallback: 2 hand-crafted alternatives if OSRM unavailable
-    if not alternate_routes:
-        base_dist = road_ship.total_distance_km
-        alternate_routes = [
-            {
-                "route_id": f"{event_id}-alt-0",
-                "distance_km": round(base_dist * 1.12, 1),
-                "duration_min": round(base_dist * 1.12 / 60 * 60, 0),
-                "via_waypoints": ["NH-7 Bypass"],
-                "cost_inr": round(base_dist * 1.12 * 45, 0),
-                "eta_hours": round(base_dist * 1.12 / 60, 1),
-            },
-            {
-                "route_id": f"{event_id}-alt-1",
-                "distance_km": round(base_dist * 1.08, 1),
-                "duration_min": round(base_dist * 1.08 / 60 * 60, 0),
-                "via_waypoints": ["NH-58 Alternate"],
-                "cost_inr": round(base_dist * 1.08 * 42, 0),
-                "eta_hours": round(base_dist * 1.08 / 60, 1),
-            },
-        ]
+    # Start from current truck position, not origin
+    c_lon, c_lat = road_ship.current_lon, road_ship.current_lat
+    d_lon, d_lat = road_ship.end_lon, road_ship.end_lat
+
+    # 1. Calculate a perfect 55km perpendicular detour mathematically
+    # This guarantees the alternate route perfectly avoids the primary highway axis
+    dx = d_lon - c_lon
+    dy = d_lat - c_lat
+    length = (dx**2 + dy**2)**0.5
+    px, py = (-dy/length, dx/length) if length > 0 else (0, 0)
+
+    # Shift midpoint perpendicularly
+    mid_lon = (c_lon + d_lon) / 2
+    mid_lat = (c_lat + d_lat) / 2
+    i_lon = mid_lon + px * 0.5  # roughly 55km
+    i_lat = mid_lat + py * 0.5
+
+    # We only need exactly 1 guaranteed, perfect alternate route for now
+    intermediates = [("VRP Computed Detour", i_lon, i_lat)]
+
+    alternate_routes: list[dict[str, Any]] = []
+
+    # 2. Use Google OR-Tools VRP Solver + Real OSRM paths
+    for i, (city, i_lon, i_lat) in enumerate(intermediates):
+        try:
+            # Build VRP Input
+            nodes = [
+                VRPNode(id="current", lat=c_lat, lon=c_lon, demand_kg=0),
+                VRPNode(id=city, lat=i_lat, lon=i_lon, demand_kg=100),
+                VRPNode(id="dest", lat=d_lat, lon=d_lon, demand_kg=0)
+            ]
+            vrp_input = VRPInput(
+                nodes=nodes,
+                vehicles=[VRPVehicle(id="v1", capacity_kg=5000, depot_node_id="current", mode="road")],
+                risk_matrix=np.zeros((3, 3))
+            )
+
+            # Integrate VRP solver (runs synchronously, so offload to thread)
+            import asyncio
+            vrp_solution = await asyncio.to_thread(solve, vrp_input)
+
+            # Get real routing geometries for the two legs
+            leg1 = await _fetch_osrm_route(c_lon, c_lat, i_lon, i_lat)
+            leg2 = await _fetch_osrm_route(i_lon, i_lat, d_lon, d_lat)
+
+            # Combine legs, skipping the duplicate intermediate point
+            full_geom = leg1 + leg2[1:] if leg2 else leg1
+
+            alternate_routes.append({
+                "route_id": f"{event_id}-alt-{i}",
+                "distance_km": vrp_solution.total_km,
+                "duration_min": round(vrp_solution.total_km / 60 * 60, 0),
+                "via_waypoints": [f"via {city.title()} (OR-Tools)"],
+                "cost_inr": vrp_solution.total_cost_inr,
+                "eta_hours": round(vrp_solution.total_km / 60, 1),
+                "geometry": full_geom if full_geom else [],
+            })
+        except Exception as exc:  # noqa: BLE001
+            log.warning("fire.vrp_alternate_failed", error=str(exc))
 
     disruption_event = {
         "event_id": event_id,
@@ -724,6 +906,23 @@ async def simulate_fire_disruption(
     await redis_client.lpush(f"agent_log:{tenant_id}", agent_json)
     await redis_client.ltrim(f"agent_log:{tenant_id}", 0, 99)
 
+    # ── Store fire state so worker can block truck when it reaches fire location ──
+    _active_fire[tenant_id] = {
+        "shipment_id": road_ship.shipment_id,
+        "fire_progress": fire_progress if road_ship.route_path else road_ship.progress + 0.25,
+        "fire_lat": fire_lat,
+        "fire_lon": fire_lon,
+        "event_id": event_id,
+    }
+
+    # ── Update DB Status to At Risk ──
+    await db.execute(
+        sa.update(Shipment)
+        .where(Shipment.id == road_ship.shipment_id)
+        .values(status=ShipmentStatus.AT_RISK)
+    )
+    await db.commit()
+
     return {
         "status": "triggered",
         "shipment_id": road_ship.shipment_id,
@@ -739,6 +938,7 @@ async def simulate_fire_disruption(
 @router.post("/disruption/apply-route")
 async def apply_reroute(
     user: Annotated[User, Depends(operator_user_dependency)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
     route_index: int = Body(0, embed=True),
 ) -> dict[str, Any]:
     """Apply a dispatched alternate route to the active road shipment.
@@ -755,37 +955,61 @@ async def apply_reroute(
     if not road_ship:
         return {"status": "error", "message": "No active road shipment found."}
 
-    # Fetch all alternatives with full GeoJSON geometry
-    coord_str = (
-        f"{road_ship.start_lon},{road_ship.start_lat};{road_ship.end_lon},{road_ship.end_lat}"
-    )
+    # ── Reroute from CURRENT truck position, not origin ──
+    # This ensures the truck continues from where it stopped, not from the start.
+    c_lon = road_ship.current_lon
+    c_lat = road_ship.current_lat
+
     new_path: list[list[float]] = []
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"http://router.project-osrm.org/route/v1/driving/{coord_str}",
-                params={"overview": "full", "geometries": "geojson", "alternatives": "true"},
-                timeout=10.0,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        routes = data.get("routes", [])
-        # route_index 0 = first alternate (skip primary at index 0 if available)
-        target_idx = min(route_index + 1, len(routes) - 1) if len(routes) > 1 else 0
-        chosen = routes[target_idx]
-        new_path = chosen.get("geometry", {}).get("coordinates", [])
-    except Exception as exc:  # noqa: BLE001
-        log.warning("apply_reroute.osrm_failed", error=str(exc))
+
+    # Fetch exactly the same geometry that was shown on the map
+    vrp_json = await redis_client.get(f"vrp_results:{tenant_id}:latest")
+    if vrp_json:
+        try:
+            data = json.loads(vrp_json)
+            alts = data.get("alternate_routes", {}).get(road_ship.shipment_id, [])
+            if 0 <= route_index < len(alts):
+                new_path = alts[route_index].get("geometry", [])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("apply_reroute.read_vrp_failed", error=str(exc))
+
+    if not new_path or len(new_path) < 2:
+        # Fallback to raw OSRM if Redis fetch failed
+        coord_str = f"{c_lon},{c_lat};{road_ship.end_lon},{road_ship.end_lat}"
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    f"http://router.project-osrm.org/route/v1/driving/{coord_str}",
+                    params={"overview": "full", "geometries": "geojson", "alternatives": "true"},
+                    timeout=10.0,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            routes = data.get("routes", [])
+            # Prefer alternate route (index 1); fall back to primary (index 0)
+            target_idx = min(route_index + 1, len(routes) - 1) if len(routes) > 1 else 0
+            chosen = routes[target_idx]
+            new_path = chosen.get("geometry", {}).get("coordinates", [])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("apply_reroute.osrm_failed", error=str(exc))
 
     if len(new_path) < 2:
-        # Fallback: use existing path (no-op gracefully)
-        new_path = road_ship.route_path or [
-            [road_ship.start_lon, road_ship.start_lat],
+        # Fallback: straight line from current position to destination
+        new_path = [
+            [c_lon, c_lat],
             [road_ship.end_lon, road_ship.end_lat],
         ]
 
-    # Update the live SimulatedShipment in-memory — takes effect next tick
+    # Update SimulatedShipment — new path starts from current position
     road_ship.route_path = new_path
+    road_ship.start_lon = c_lon          # Advance() uses start coords for progress calc
+    road_ship.start_lat = c_lat
+    road_ship.progress = 0.0             # Reset: new path begins at current position
+    road_ship.total_distance_km = _haversine_km(c_lon, c_lat, road_ship.end_lon, road_ship.end_lat)
+    road_ship.blocked = False
+
+    # Clear the active fire state
+    _active_fire.pop(tenant_id, None)
 
     channel = f"shipments:{tenant_id}"
 
@@ -836,9 +1060,33 @@ async def apply_reroute(
         route_index=route_index,
         waypoints=len(new_path),
     )
+
+    # ── Update DB Status to Rerouted ──
+    await db.execute(
+        sa.update(Shipment)
+        .where(Shipment.id == road_ship.shipment_id)
+        .values(status=ShipmentStatus.REROUTED)
+    )
+    await db.commit()
+
     return {
         "status": "rerouted",
         "shipment_id": road_ship.shipment_id,
         "route_index": route_index,
         "new_waypoints": len(new_path),
     }
+
+
+@router.patch("/speed")
+async def update_simulation_speed(
+    user: Annotated[User, Depends(operator_user_dependency)],
+    speed_multiplier: float = Query(..., gt=1.0, le=100000.0, description="New speed multiplier"),
+) -> dict[str, Any]:
+    """Update speed of the running simulation without restarting it."""
+    tenant_id = str(user.tenant_id)
+    task = _simulation_tasks.get(tenant_id)
+    if not task or task.done():
+        return {"status": "no_simulation", "message": "No active simulation found."}
+    _simulation_speed[tenant_id] = speed_multiplier
+    log.info("simulation.speed_updated", tenant_id=tenant_id, speed_multiplier=speed_multiplier)
+    return {"status": "updated", "speed_multiplier": speed_multiplier}

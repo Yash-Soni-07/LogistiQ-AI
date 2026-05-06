@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Activity, Package, CheckCircle2 } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
@@ -17,12 +17,17 @@ interface KpiSummary {
   active_disruptions: number;
 }
 
+// Module-level flag: persists across React mount/unmount cycles for the
+// entire browser session so the simulation demo fires exactly once,
+// regardless of how many times the user navigates to/from this page.
+const _simulationAutostartEnv = (import.meta.env.VITE_ENABLE_SIMULATION_AUTOSTART as string | undefined)?.toLowerCase();
+const _shouldAutostart = _simulationAutostartEnv !== 'false';
+let _simulationSessionBooted = false;
+
 export default function DashboardView() {
   const [logs, setLogs] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'logs' | 'disruptions'>('logs');
-  const simulationBootedRef = useRef(false);
-  const simulationAutostartEnv = (import.meta.env.VITE_ENABLE_SIMULATION_AUTOSTART as string | undefined)?.toLowerCase();
-  const shouldAutostartSimulation = simulationAutostartEnv !== 'false';
+  const shouldAutostartSimulation = _shouldAutostart;
 
   // 1. Fetch KPIs with React Query (polling every 15s)
   const { data: summary } = useQuery({
@@ -90,10 +95,10 @@ export default function DashboardView() {
     if (!shouldAutostartSimulation) {
       return;
     }
-    if (simulationBootedRef.current) {
+    if (_simulationSessionBooted) {
       return;
     }
-    simulationBootedRef.current = true;
+    _simulationSessionBooted = true;
     let isMounted = true;
 
     const startSimulation = async () => {
@@ -132,7 +137,7 @@ export default function DashboardView() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 bg-[var(--lq-bg)] overflow-hidden">
-      <div className="flex-1 min-h-0 p-6">
+      <div className="flex-1 min-h-0 p-6 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal" className="h-full rounded-xl border border-[var(--lq-border)] shadow-sm bg-[var(--lq-surface)] overflow-hidden">
           
           {/* Left Panel: KPIs + Map */}
@@ -171,7 +176,7 @@ export default function DashboardView() {
           <ResizableHandle withHandle className="w-1.5 bg-[var(--lq-border)] hover:bg-[var(--lq-cyan)] transition-colors" />
 
           {/* Right Panel: Agent Activity — Tabbed */}
-          <ResizablePanel defaultSize={30} minSize={20} className="flex flex-col bg-[var(--lq-surface)]">
+          <ResizablePanel defaultSize={30} minSize={20} className="flex flex-col bg-[var(--lq-surface)] overflow-hidden min-h-0">
             {/* Tab Header */}
             <div className="p-3 border-b border-[var(--lq-border)] bg-[var(--lq-surface-2)] flex items-center gap-1">
               <button
@@ -209,7 +214,7 @@ export default function DashboardView() {
             </div>
 
             {/* Tab Content */}
-            <div className="flex-1 p-4 bg-[var(--lq-surface)] overflow-y-auto space-y-3">
+            <div className="flex-1 min-h-0 p-2 bg-[var(--lq-surface)] overflow-y-auto space-y-1.5">
               {activeTab === 'logs' ? (
                 /* ── Agent Logs Tab ── */
                 logs.length === 0 ? (
@@ -224,54 +229,49 @@ export default function DashboardView() {
                   </div>
                 ) : (
                   logs.map((log, idx) => {
-                    const time = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                    const time = log.timestamp
+                      ? new Date(log.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                      : '';
                     const desc = log.disruption?.description || log.description || log.message || 'Agent Decision Event';
                     const severity = log.disruption?.severity || log.severity;
-                    const actions = log.actions || [];
+                    const actions: string[] = log.actions || [];
                     const shipmentId = log.shipment_id || log.disruption?.shipment_id;
                     const isEscalated = log.human_escalated;
                     const isFallback = log.fallback_used;
+                    const sevColor = severity === 'critical' || severity === 'high'
+                      ? 'bg-red-500'
+                      : severity === 'medium' ? 'bg-amber-400' : 'bg-blue-400';
 
                     return (
-                      <div key={log.trace_id || idx} className="p-3 bg-[var(--lq-surface-2)] border border-[var(--lq-border)] rounded-lg shadow-sm text-sm border-l-2 border-l-[var(--lq-purple)] animate-in fade-in slide-in-from-right-4 duration-300">
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-[10px] font-mono text-[var(--lq-text-dim)]">{time}</span>
-                          <div className="flex items-center gap-1.5">
-                            {severity && (
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded border uppercase tracking-wider font-semibold ${
-                                severity === 'critical' || severity === 'high'
-                                  ? 'bg-red-500/15 text-red-400 border-red-500/25'
-                                  : severity === 'medium'
-                                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/25'
-                                    : 'bg-blue-500/15 text-blue-400 border-blue-500/25'
-                              }`}>
-                                {severity}
-                              </span>
-                            )}
-                            {isFallback && (
-                              <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded border border-amber-500/25 uppercase tracking-wider font-semibold">Fallback</span>
-                            )}
-                            {isEscalated && (
-                              <span className="text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30 uppercase tracking-wider font-semibold">Escalated</span>
-                            )}
-                          </div>
+                      <div
+                        key={log.trace_id || idx}
+                        className="p-2 bg-[var(--lq-surface-2)] border border-[var(--lq-border)] rounded-lg border-l-2 border-l-[var(--lq-purple)] animate-in fade-in slide-in-from-right-4 duration-300"
+                      >
+                        {/* Row 1: time + severity + badges + shipment id */}
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className="text-[9px] font-mono text-[var(--lq-text-dim)] shrink-0">{time}</span>
+                          {severity && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${sevColor}`} title={severity} />}
+                          {isFallback && <span className="text-[8px] bg-amber-500/15 text-amber-400 px-1 py-px rounded font-semibold">FB</span>}
+                          {isEscalated && <span className="text-[8px] bg-red-500/20 text-red-400 px-1 py-px rounded font-semibold">ESC</span>}
+                          {shipmentId && (
+                            <span className="ml-auto text-[9px] font-mono text-[var(--lq-text-dim)] truncate max-w-[90px]">
+                              {typeof shipmentId === 'string' ? shipmentId.slice(0, 8) : shipmentId}…
+                            </span>
+                          )}
                         </div>
-                        <p className="text-[var(--lq-text-bright)] font-medium text-xs mb-1.5 leading-relaxed">{desc}</p>
-                        {shipmentId && (
-                          <p className="text-[10px] text-[var(--lq-text-dim)] font-mono mb-1.5">
-                            Shipment: {typeof shipmentId === 'string' ? shipmentId.slice(0, 12) : shipmentId}…
-                          </p>
-                        )}
+                        {/* Row 2: description */}
+                        <p className="text-[11px] text-[var(--lq-text-bright)] font-medium leading-snug line-clamp-2 mb-1">{desc}</p>
+                        {/* Row 3: action chips (max 2 + overflow) */}
                         {actions.length > 0 && (
-                          <div className="space-y-1">
-                            <span className="text-[10px] text-[var(--lq-text-dim)] uppercase tracking-wider font-semibold">AI Actions</span>
-                            <div className="flex flex-wrap gap-1">
-                              {actions.map((act: string, i: number) => (
-                                <span key={i} className="text-[10px] bg-[var(--lq-purple)]/20 text-[var(--lq-purple)] px-1.5 py-0.5 rounded border border-[var(--lq-purple)]/30 font-mono">
-                                  {act}
-                                </span>
-                              ))}
-                            </div>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {actions.slice(0, 2).map((act: string, i: number) => (
+                              <span key={i} className="text-[8px] bg-[var(--lq-purple)]/20 text-[var(--lq-purple)] px-1.5 py-px rounded font-mono border border-[var(--lq-purple)]/25">
+                                {act}
+                              </span>
+                            ))}
+                            {actions.length > 2 && (
+                              <span className="text-[8px] text-[var(--lq-text-dim)] font-mono">+{actions.length - 2}</span>
+                            )}
                           </div>
                         )}
                       </div>

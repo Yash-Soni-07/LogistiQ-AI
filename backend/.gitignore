@@ -1,17 +1,70 @@
-# Python-generated files
+# ---------------------------------------------------------------------------
+# Python generated files
+# ---------------------------------------------------------------------------
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
-# Virtual environments
-.venv
+# ---------------------------------------------------------------------------
+# Virtual environments and local dependency installs
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# ---------------------------------------------------------------------------
+# Local environment, credentials, and secret-bearing files
+# Keep .env.example committed so public users can recreate local config.
+# ---------------------------------------------------------------------------
 .env
-.env.example
-
+.env.*
+!.env.example
 env.yaml
+*.pem
+*.key
+*.p8
+*.p12
+*.crt
+*.cer
+credentials*.json
+service-account*.json
+serviceAccount*.json
+firebase-adminsdk*.json
+google-credentials*.json
 
-env.yaml
-.env*
+# ---------------------------------------------------------------------------
+# Test, lint, type-check, and coverage output
+# ---------------------------------------------------------------------------
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# ---------------------------------------------------------------------------
+# Local databases and runtime artifacts
+# ---------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+test.db
+*.log
+logs/
+
+# ---------------------------------------------------------------------------
+# OS and editor noise
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

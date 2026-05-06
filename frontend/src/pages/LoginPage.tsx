@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import AuthBackground from '@/components/auth/AuthBackground';
 import { useServerWarmup } from '@/hooks/useServerWarmup';
+import { WarmupTypewriter } from '@/components/auth/WarmupTypewriter';
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -64,33 +66,71 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[var(--lq-bg)] p-4 sm:p-8">
+    <div className="w-full min-h-screen md:h-screen md:overflow-hidden flex items-center justify-center bg-[var(--lq-bg)] px-4 py-6">
       
       <AuthBackground />
 
       <div className="w-full max-w-md flex flex-col items-center relative z-10">
         
         {/* Logo Header */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-xl bg-[var(--lq-cyan)] flex items-center justify-center text-white mb-4 shadow-lg shadow-cyan-500/20">
-            <Hexagon size={24} className="fill-current" />
+        <div className="flex flex-col items-center mb-3">
+          <div className="w-10 h-10 rounded-xl bg-[var(--lq-cyan)] flex items-center justify-center text-white mb-2 shadow-lg shadow-cyan-500/25 ring-4 ring-[var(--lq-cyan)]/10">
+            <Hexagon size={20} className="fill-current" />
           </div>
-          <h1 className="text-2xl font-bold text-[var(--lq-text-bright)] tracking-tight">LogistiQ AI</h1>
-          <p className="text-[var(--lq-text-dim)] text-sm mt-1">Intelligent Freight Orchestration</p>
+          <h1 className="text-xl font-bold text-[var(--lq-text-bright)] tracking-tight">LogistiQ AI</h1>
+          <p className="text-[var(--lq-text-dim)] text-xs mt-0.5">Intelligent Freight Orchestration</p>
+        </div>
+
+        {/* AI insight panel — always visible, independent of server state */}
+        <div className="w-full mb-2">
+          <WarmupTypewriter />
+        </div>
+
+        {/* Google OAuth */}
+        <div className="w-full mb-2">
+          <GoogleSignInButton
+            mode="signin"
+            onStart={() => { setLoading(true); setError(null); }}
+            onError={(msg) => { setError(msg); setLoading(false); }}
+          />
+        </div>
+
+        {/* Divider */}
+        <div className="w-full flex items-center gap-3 mb-2">
+          <div className="flex-1 h-px bg-[var(--lq-border)]" />
+          <span className="text-xs text-[var(--lq-text-dim)] uppercase tracking-widest font-medium">or</span>
+          <div className="flex-1 h-px bg-[var(--lq-border)]" />
         </div>
 
         {/* Login Card */}
-        <div className="w-full bg-[var(--lq-surface)] border border-[var(--lq-border)] rounded-2xl p-6 sm:p-8 shadow-xl shadow-black/5">
-          <h2 className="text-xl font-semibold text-[var(--lq-text-bright)] mb-6">Sign In</h2>
-          
+        <div className="w-full bg-[var(--lq-surface)] border border-[var(--lq-border)] rounded-2xl p-4 sm:p-5 shadow-[0_4px_24px_rgba(0,0,0,0.08),0_0_0_1px_rgba(34,211,238,0.06)]">
+          {/* Card header: title + live connection badge */}
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-xl font-semibold text-[var(--lq-text-bright)]">Sign In</h2>
+            <div className="flex items-center gap-1.5">
+              {isWaking && (
+                <>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  <span className="text-xs text-[var(--lq-text-dim)] font-medium">Connecting</span>
+                </>
+              )}
+              {warmupStatus === 'connected' && (
+                <>
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span className="text-xs text-emerald-400 font-medium">Connected</span>
+                </>
+              )}
+            </div>
+          </div>
+
           {error && (
-            <Alert variant="destructive" className="mb-6 bg-red-500/10 text-red-500 border-red-500/20">
+            <Alert variant="destructive" className="mb-5 bg-red-500/10 text-red-500 border-red-500/20">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-3">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-[var(--lq-text-bright)] text-xs uppercase tracking-wider font-semibold">Email Address</Label>
               <div className="relative">
@@ -134,14 +174,17 @@ export default function LoginPage() {
 
             <Button 
               type="submit" 
-              className="w-full bg-[var(--lq-cyan)] hover:bg-[var(--lq-cyan)]/90 text-white mt-6 h-11 transition-opacity duration-300"
+              className="w-full text-white mt-3 h-10 font-medium transition-all duration-300 shadow-md"
               disabled={loading || isWaking || !email || !password}
-              style={{ opacity: isWaking ? 0.6 : 1 }}
+              style={{
+                opacity: isWaking ? 0.65 : 1,
+                background: 'linear-gradient(135deg, var(--lq-cyan) 0%, #0e7490 100%)',
+              }}
             >
               {loading ? (
                 <Loader2 size={18} className="animate-spin" />
               ) : isWaking ? (
-                <span className="text-sm">⏳ Waking secure servers (approx 5s)...</span>
+                <span className="text-sm">⏳ Waking secure servers...</span>
               ) : (
                 <>
                   Sign In <ArrowRight size={16} className="ml-2" />
@@ -150,24 +193,10 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {/* Server warm-up status indicator */}
-          <div className="mt-4 flex items-center justify-center gap-2 min-h-[20px]">
-            {isWaking && (
-              <p className="text-xs text-[var(--lq-text-dim)] flex items-center gap-1.5">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                Establishing secure connection...
-              </p>
-            )}
-            {warmupStatus === 'connected' && (
-              <p className="text-xs text-emerald-400 flex items-center gap-1.5">
-                ✅ Securely connected
-              </p>
-            )}
-          </div>
         </div>
 
         {/* Footer */}
-        <p className="mt-8 text-sm text-[var(--lq-text-dim)]">
+        <p className="mt-3 text-sm text-[var(--lq-text-dim)]">
           Don't have an account?{' '}
           <Link to="/register" className="text-[var(--lq-cyan)] hover:underline font-medium">
             Create tenant workspace

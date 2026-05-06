@@ -16,11 +16,13 @@
     />
     <script>
       (function() {
-        const theme = localStorage.getItem('lq-theme');
-        if (theme === 'dark') {
-          document.documentElement.classList.add('dark');
-        } else if (theme === 'light') {
+        var t = localStorage.getItem('lq-theme');
+        if (t === 'light') {
           document.documentElement.classList.remove('dark');
+        } else {
+          // Default dark — matches original map style expectation
+          document.documentElement.classList.add('dark');
+          if (!t) localStorage.setItem('lq-theme', 'dark');
         }
       })();
     </script>
