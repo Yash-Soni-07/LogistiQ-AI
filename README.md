@@ -80,6 +80,7 @@ The application is designed around India-first logistics and emerging-market res
 - Supported disruption categories include flood, fire, quake, strike, port congestion, fuel shortage, tariff, cyber, cold-chain breach, JIT failure, weather, traffic, accident, natural disaster, and security.
 - Disruption records support geospatial center points, radius, risk score, source APIs, affected segments, impact, status, and auto-handled state.
 - Affected-shipment checks are designed for PostGIS spatial matching, with graceful test fallbacks when SQLite is used.
+- Dynamic disruption simulations trigger AI-generated VRP alternate routes. Applying a reroute mid-transit intelligently splices the original physical route with the new bypass detour to preserve accurate telemetry and prevent map teleportation.
 
 ### AI And Agent Workflows
 
@@ -101,6 +102,7 @@ The application is designed around India-first logistics and emerging-market res
 
 - WebSocket authentication uses `?token=<jwt>` because browser WebSocket APIs cannot set custom headers.
 - Fleet tracking, per-shipment tracking, disruption feeds, dashboard ticks, agent logs, VRP results, carrier auction updates, and Copilot sessions are streamed through dedicated channels.
+- Fleet tracking employs a "slim tick" payload architecture. Background simulation workers skip sending heavy OSRM route geometries during standard coordinate ticks (reducing overhead from ~700KB to 2KB per tick), but push full geometry payloads immediately upon dynamic route changes.
 - Frontend sockets automatically normalize `/ws` paths, detect expired JWTs, send heartbeat pings, and reconnect with backoff.
 
 ### Billing And Usage

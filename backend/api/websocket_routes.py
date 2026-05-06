@@ -21,7 +21,6 @@ import json
 from collections import defaultdict
 from datetime import UTC, datetime
 
-import google.generativeai as genai
 import structlog
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -205,6 +204,31 @@ async def ws_shipments_all(
         await ws.send_json({"type": "FeatureCollection", "features": features})
     except Exception as e:
         log.warning("ws.shipments.initial_state_failed", error=str(e))
+
+    # 1b. If a live simulation is running, send a full tick so FreightMap gets
+    # correct route_path immediately (avoids hydrateRoadPaths overwriting alt routes).
+    try:
+        from api.simulation_routes import _active_simulations, _active_fire  # local import to avoid circular
+        sims = _active_simulations.get(tenant_id, [])
+        if sims:
+            await ws.send_json({
+                "type":     "simulation_tick",
+                "shipments": [s.payload(slim=False) for s in sims],  # full paths on reconnect
+                "ts":       datetime.now(UTC).isoformat(),
+            })
+            # Re-send fire_event if a fire is active so map keeps the fire marker
+            fire = _active_fire.get(tenant_id)
+            if fire:
+                await ws.send_json({
+                    "type":        "fire_event",
+                    "fire_lon":    fire["fire_lon"],
+                    "fire_lat":    fire["fire_lat"],
+                    "shipment_id": fire["shipment_id"],
+                    "description": f"Active fire disruption — {fire.get('event_id', '')}",
+                    "event_id":    fire.get("event_id", ""),
+                })
+    except Exception as e:
+        log.warning("ws.shipments.sim_state_failed", error=str(e))
 
     # 2. Redis PubSub
     pubsub = redis_client.pubsub()
@@ -451,14 +475,19 @@ async def ws_copilot(
                 {"type": "done", "reasoning_steps": [], "suggested_actions": response.tool_calls}
             )
         else:
-            # Gemini streaming
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel(
-                model_name=getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash"),
-                system_instruction="You are LogistiQ AI Copilot — an expert assistant for Indian logistics operators. Answer concisely in plain English.",  # noqa: E501
+            from google import genai
+            from google.genai import types
+            
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            
+            response_stream = await client.aio.models.generate_content_stream(
+                model=getattr(settings, "GEMINI_MODEL", "gemini-1.5-flash"),
+                contents=question,
+                config=types.GenerateContentConfig(
+                    system_instruction="You are LogistiQ AI Copilot — an expert assistant for Indian logistics operators. Answer concisely in plain English."
+                )
             )
-            response_stream = model.generate_content(question, stream=True)
-            for chunk in response_stream:
+            async for chunk in response_stream:
                 if chunk.text:
                     await ws.send_json({"type": "token", "content": chunk.text})
 

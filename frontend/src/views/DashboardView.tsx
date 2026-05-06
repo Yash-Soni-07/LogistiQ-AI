@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Activity, Package, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, Activity, Package, CheckCircle2, Trash2 } from 'lucide-react';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { apiClient } from '@/lib/api';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -211,6 +211,17 @@ export default function DashboardView() {
                   </span>
                 ) : null}
               </button>
+              
+              {activeTab === 'logs' && logs.length > 5 && (
+                <button
+                  onClick={() => setLogs(logs.slice(0, 5))}
+                  className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold text-[var(--lq-text-dim)] hover:text-[var(--lq-red)] hover:bg-[var(--lq-red)]/10 transition-colors"
+                  title="Keep only latest 5 logs"
+                >
+                  <Trash2 size={12} />
+                  Clear Old
+                </button>
+              )}
             </div>
 
             {/* Tab Content */}
@@ -254,7 +265,7 @@ export default function DashboardView() {
                           {isFallback && <span className="text-[8px] bg-amber-500/15 text-amber-400 px-1 py-px rounded font-semibold">FB</span>}
                           {isEscalated && <span className="text-[8px] bg-red-500/20 text-red-400 px-1 py-px rounded font-semibold">ESC</span>}
                           {shipmentId && (
-                            <span className="ml-auto text-[9px] font-mono text-[var(--lq-text-dim)] truncate max-w-[90px]">
+                            <span className="ml-auto text-[9px] font-mono text-[var(--lq-text-dim)] truncate max-w-[90px] bg-white/5 px-1 rounded border border-white/5">
                               {typeof shipmentId === 'string' ? shipmentId.slice(0, 8) : shipmentId}…
                             </span>
                           )}
@@ -264,13 +275,23 @@ export default function DashboardView() {
                         {/* Row 3: action chips (max 2 + overflow) */}
                         {actions.length > 0 && (
                           <div className="flex items-center gap-1 flex-wrap">
-                            {actions.slice(0, 2).map((act: string, i: number) => (
-                              <span key={i} className="text-[8px] bg-[var(--lq-purple)]/20 text-[var(--lq-purple)] px-1.5 py-px rounded font-mono border border-[var(--lq-purple)]/25">
-                                {act}
-                              </span>
-                            ))}
+                            {actions.slice(0, 2).map((act: string, i: number) => {
+                              const isImportant = act.includes('reroute') || act.includes('alert') || act.includes('fire');
+                              const chipColor = isImportant ? 'bg-[var(--lq-amber)]/20 text-[var(--lq-amber)] border-[var(--lq-amber)]/25' : 'bg-[var(--lq-purple)]/20 text-[var(--lq-purple)] border-[var(--lq-purple)]/25';
+                              return (
+                                <span key={i} className={`text-[8px] px-1.5 py-px rounded font-mono border ${chipColor}`}>
+                                  {act}
+                                </span>
+                              );
+                            })}
                             {actions.length > 2 && (
                               <span className="text-[8px] text-[var(--lq-text-dim)] font-mono">+{actions.length - 2}</span>
+                            )}
+                            {log.gemini_tokens_used && (
+                              <span className="text-[8px] text-[var(--lq-text-dim)] ml-auto font-mono flex items-center gap-0.5">
+                                <span className="w-1 h-1 rounded-full bg-[var(--lq-cyan)] animate-pulse" />
+                                {log.gemini_tokens_used} tokens
+                              </span>
                             )}
                           </div>
                         )}

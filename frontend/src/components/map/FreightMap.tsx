@@ -191,7 +191,12 @@ export default function FreightMap() {
       const routes = Object.values(altRoutes ?? {}).flat() as any[];
       setVrpOverlay({
         affectedShipmentId: (disruption?.shipment_id as string) ?? null,
-        fireProgress: 0, // will be inferred from fire marker position
+        // Use the truck's actual progress at fire-trigger time so the red
+        // blocked segment and green alternate route are anchored correctly.
+        fireProgress:
+          typeof disruption?.truck_progress === "number"
+            ? disruption.truck_progress
+            : 0,
         alternateRoutes: routes
           .filter((r: any) => Array.isArray(r.geometry) && r.geometry.length > 1)
           .slice(0, 2)
@@ -222,11 +227,22 @@ export default function FreightMap() {
         return;
       }
 
-      // ── Truck arrived at fire location ──
+      // ── VRP routing failed — show error toast ──
+      if (msg.type === "vrp_error") {
+        import("sonner").then(({ toast }) => {
+          toast.error(
+            (msg.message as string) ?? "Could not compute alternate route.",
+            { duration: 10000, id: "vrp-error" },
+          );
+        });
+        return;
+      }
+
+      // ── Truck stopped at bypass decision point (40km before fire) ──
       if (msg.type === "truck_at_fire") {
         import("sonner").then(({ toast }) => {
           toast.warning(
-            `🚨 Truck stopped at fire zone! ${msg.origin} → ${msg.destination} — awaiting reroute decision.`,
+            `🚨 Truck stopped at bypass point — 40 km before fire zone on ${msg.origin} → ${msg.destination}. Dispatch alternate route now or truck remains blocked.`,
             { duration: Infinity, id: "truck-at-fire" },
           );
         });
@@ -325,7 +341,7 @@ export default function FreightMap() {
           routePath:
             serverPath.length > 1
               ? serverPath
-              : buildFallbackRoutePath(mode, origin, destination, `${shipment.shipment_id}:${mode}:tick`),
+              : [], // slim tick — mergePoints will retain previous OSRM path
         } satisfies FreightRenderPoint;
       })
       .filter((point): point is FreightRenderPoint => point !== null);

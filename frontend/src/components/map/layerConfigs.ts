@@ -39,8 +39,8 @@ export function buildFireLayer(markers: FireMarker[]): Layer[] {
       data: markers,
       getPosition: (d) => d.position,
       getRadius: 35000,
-      radiusMinPixels: 20,
-      radiusMaxPixels: 60,
+      radiusMinPixels: 8,
+      radiusMaxPixels: 18,
       getFillColor: [255, 60, 10, 30],
       stroked: false,
       filled: true,
@@ -52,8 +52,8 @@ export function buildFireLayer(markers: FireMarker[]): Layer[] {
       data: markers,
       getPosition: (d) => d.position,
       getRadius: 18000,
-      radiusMinPixels: 12,
-      radiusMaxPixels: 32,
+      radiusMinPixels: 5,
+      radiusMaxPixels: 10,
       getFillColor: [255, 120, 30, 70],
       getLineColor: [255, 80, 10, 180],
       lineWidthMinPixels: 2,
@@ -67,8 +67,8 @@ export function buildFireLayer(markers: FireMarker[]): Layer[] {
       data: markers,
       getPosition: (d) => d.position,
       getRadius: 8000,
-      radiusMinPixels: 7,
-      radiusMaxPixels: 18,
+      radiusMinPixels: 3,
+      radiusMaxPixels: 8,
       getFillColor: [255, 180, 30, 255],
       getLineColor: [220, 40, 10, 255],
       lineWidthMinPixels: 2.5,
@@ -353,7 +353,7 @@ export function buildFreightLayers(points: FreightRenderPoint[], runId = 0): Lay
       stroked: false,
       filled: true,
       updateTriggers: { getPosition: updateKey },
-      transitions: { getPosition: 700 },
+      // No transition: prevents trucks flying from [0,0] when mode filter adds/removes them
     }),
 
     // ━━━ MARKERS: Live vehicle dot ━━━
@@ -370,7 +370,7 @@ export function buildFreightLayers(points: FreightRenderPoint[], runId = 0): Lay
       stroked: true,
       filled: true,
       updateTriggers: { getPosition: updateKey },
-      transitions: { getPosition: 700 },
+      // No transition: prevents trucks flying from [0,0] when mode filter adds/removes them
     }),
   ];
 }
@@ -387,13 +387,15 @@ export function buildVRPLayers(
   // Red layer: remaining (untraversed + blocked) segment of affected shipment
   const affected = points.find((p) => p.shipmentId === overlay.affectedShipmentId);
   if (affected && affected.routePath.length > 1) {
-    // Compute remaining path: from current progress index to end
     const n = affected.routePath.length;
-    const scaled = affected.progress * (n - 1);
-    const startIdx = Math.floor(scaled);
+    // Start the red "blocked zone" at the DECISION POINT (fireProgress = decision_progress),
+    // NOT at the truck's current position. This keeps the truck marker fully visible
+    // as it moves toward the decision point. Red = fire zone ahead, not behind the truck.
+    const blockStart = Math.max(overlay.fireProgress, affected.progress);
+    const scaled = blockStart * (n - 1);
+    const startIdx = Math.max(0, Math.floor(scaled));
     const remaining: [number, number][] = [
-      affected.current as [number, number],
-      ...(affected.routePath.slice(startIdx + 1) as [number, number][]),
+      ...(affected.routePath.slice(startIdx) as [number, number][]),
     ];
     if (remaining.length > 1) {
       layers.push(
@@ -415,7 +417,8 @@ export function buildVRPLayers(
     }
   }
 
-  // Green layers: alternate OSRM routes
+  // Green layers: alternate OSRM routes — shown immediately after fire detection
+  // (Req #2: operator needs to see the bypass option right away)
   const GREENS: [number, number, number, number][] = [
     [34, 197, 94, 230],  // green-500
     [16, 185, 129, 200], // emerald-500
