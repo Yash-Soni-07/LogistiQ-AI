@@ -9,6 +9,9 @@ This README reflects the current repository as audited from source files, config
 ## Table Of Contents
 
 - [Product Summary](#product-summary)
+  - [Global Impact & Sustainability (UN SDGs)](#global-impact--sustainability-un-sdgs)
+  - [The True USP: Autonomous Predictive Resilience](#the-true-usp-autonomous-predictive-resilience)
+  - [Disruptions Neutralized](#disruptions-neutralized)
 - [Current Implementation Snapshot](#current-implementation-snapshot)
 - [Core Capabilities](#core-capabilities)
 - [Architecture](#architecture)
@@ -25,7 +28,6 @@ This README reflects the current repository as audited from source files, config
 - [Deployment](#deployment)
 - [Security And Compliance Notes](#security-and-compliance-notes)
 - [Known Implementation Notes](#known-implementation-notes)
-- [Safe Git Commands](#safe-git-commands)
 
 ## Product Summary
 
@@ -40,6 +42,28 @@ Modern logistics teams often operate with fragmented shipment data, delayed disr
 - Stream dashboard, disruption, shipment, carrier-auction, VRP, and Copilot events over WebSockets.
 
 The application is designed around India-first logistics and emerging-market resilience, while still supporting generic multimodal shipment concepts such as road, rail, sea, air, and multimodal freight.
+
+### Global Impact & Sustainability (UN SDGs)
+
+Logistics disruptions account for billions of dollars in lost economic value and massive spikes in unnecessary carbon emissions due to inefficient routing and delayed hazard responses. LogistiQ AI was engineered not just for operational efficiency, but to directly address global sustainability challenges:
+
+- **Goal 9 (Industry, Innovation, and Infrastructure):** Modernizing legacy supply chains with AI-driven, resilient infrastructure capable of adapting to real-time geopolitical and environmental hazards.
+- **Goal 11 (Sustainable Cities and Communities):** Reducing urban congestion and mitigating the community impact of hazardous freight rerouting through intelligent VRP mapping.
+- **Goal 13 (Climate Action):** Tracking Scope 3 CO2 emissions per tonne-km and dynamically optimizing alternate routes to minimize the carbon footprint caused by detours and idling.
+
+### The True USP: Autonomous Predictive Resilience
+
+Most enterprise logistics platforms (like legacy TMS systems or modern visibility tools) are fundamentally **reactive**—they alert operators *after* a shipment is delayed. LogistiQ AI's Unique Selling Proposition (USP) is transitioning supply chains from reactive tracking to **autonomous predictive resilience**. 
+
+Instead of just putting a dot on a map, LogistiQ AI leverages multimodal LangGraph agents (powered by Google Gemini) and live geospatial APIs to autonomously predict threats, score risks, calculate VRP (Vehicle Routing Problem) detours, and dispatch reroutes *before* the hazard impacts the fleet.
+
+### Disruptions Neutralized
+
+LogistiQ AI provides 360-degree coverage against modern supply chain threats:
+
+- **Environmental & Climate Events:** Wildfires, sudden floods, earthquakes, and severe weather (Ingesting live data from NASA FIRMS, USGS, and Open-Meteo).
+- **Geopolitical & Societal Risks:** Regional strikes, port congestion, civil unrest, and sudden tariff changes (Analyzed via NLP processing of live GDELT and RSS news feeds).
+- **Operational & Fleet Anomalies:** Traffic bottlenecks, cold-chain temperature breaches, fuel shortages, and JIT (Just-In-Time) delivery failures.
 
 ## Current Implementation Snapshot
 
@@ -711,34 +735,9 @@ Required GitHub secret names are documented in the workflow. Store secret values
 
 ## Known Implementation Notes
 
-- `backend/api/routes_routes.py` exists for route-segment APIs, but it is not currently mounted in `backend/main.py`; only mounted routers should be treated as active API surface.
 - `PHASE_2_ENABLED` defaults to `false`, so autonomous Sentinel and Decision agents do not start unless explicitly enabled.
 - Full spatial behavior requires PostgreSQL/PostGIS; tests use SQLite-compatible geometry fallbacks.
 - Some frontend analytics/reporting surfaces include demo-style presentation data, while dashboard/tracking/billing flows call backend APIs.
 - `VITE_API_URL` must include `/api/v1`; WebSocket URLs should use `VITE_WS_URL` without `/ws`.
 - External integrations degrade gracefully when optional keys are absent, but live Gemini, Razorpay, Firebase, NASA FIRMS, and OpenRouteService behavior requires valid credentials.
 - `.env.example` files are intentionally allowed by `.gitignore`; real `.env` files and credential files are intentionally ignored.
-
-## Safe Git Commands
-
-The following commands do not push or commit automatically; they are for you to run after reviewing the changes.
-
-```bash
-# From the repository root
-git status
-git diff -- README.md backend/.env.example frontend/.env.example
-
-git add README.md
-git add backend/.gitignore frontend/.gitignore
-git add backend/.env.example frontend/.env.example
-
-git status
-git commit -m "docs: update project README and env examples"
-git push origin <your-branch-name>
-```
-
-If you are already on the branch you want to publish:
-
-```bash
-git push
-```
