@@ -4,6 +4,8 @@ LogistiQ AI is a multi-tenant logistics intelligence platform for shipment visib
 
 This README reflects the current repository as audited from source files, configuration, tests, Docker assets, and CI workflows. It intentionally does not include private keys, API tokens, passwords, or production secret values.
 
+**Visit Live Site Here:** [LogistiQ AI](https://logistiq-ai-b7d52.web.app/) *[Open in desktop for best experience.]*
+
 ## Table Of Contents
 
 - [Product Summary](#product-summary)
